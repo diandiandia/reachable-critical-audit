@@ -162,7 +162,8 @@ class ASTCoarseScanner:
 
 if __name__ == "__main__":
     workspace = sys.argv[1] if len(sys.argv) > 1 else "."
-    profile = os.path.join(workspace, "resources/security_profiles.json")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    profile = os.path.join(script_dir, "../resources/security_profiles.json")
     
     scanner = ASTCoarseScanner(profile)
     results = scanner.scan(workspace)

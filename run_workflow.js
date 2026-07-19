@@ -39,7 +39,7 @@ function runAgentCmd(command) {
 
 async function executeWorkflow(workspacePath) {
     console.log(`${colors.cyan}[*] 初始化 Reachable Critical Audit 工作流...${colors.reset}`);
-    const scannerPath = path.join(workspacePath, 'tools', 'ast_scanner.py');
+    const scannerPath = path.join(__dirname, 'tools', 'ast_scanner.py');
     const queuePath = path.join(workspacePath, 'verify_queue.json');
     const reportPath = path.join(workspacePath, 'reachable_vulnerabilities_report.json');
 
@@ -53,7 +53,7 @@ async function executeWorkflow(workspacePath) {
         try {
             // 同步执行初筛作为第一步，秒级速度
             const { execSync } = require('child_process');
-            execSync(`python "${scannerPath}" "${workspacePath}"`, { stdio: 'inherit' });
+            execSync(`python3 "${scannerPath}" "${workspacePath}"`, { stdio: 'inherit' });
             queue = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
         } catch (error) {
             console.error(`${colors.red}[Error] AST 扫描器执行失败. 流程终止。${colors.reset}`);
