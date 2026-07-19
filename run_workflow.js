@@ -130,7 +130,7 @@ async function executeWorkflow(workspacePath) {
             }
 
             const safePrompt = prompt.replace(/"/g, '\\"').replace(/\n/g, ' ');
-            const command = `agy agent run --prompt "${safePrompt}"`;
+            const command = `agy --dangerously-skip-permissions --prompt "${safePrompt}"`;
 
             try {
                 // 异步拉起子会话执行
