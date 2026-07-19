@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 
 /**
  * Reachable Critical Audit - CLI Workflow Orchestrator (Node.js)
@@ -8,7 +8,7 @@ const { exec } = require('child_process');
  * 具备【并发批处理 / 物理隔离 / 实时落盘断点保护】的安全审计工作流：
  * 1. 执行本地 AST 物理扫描，加载/生成 verify_queue.json 持久化队列。
  * 2. 按照每次启动 3-5 个（默认 4 个）子智能体的并发方式，进行批处理循环研判。
- * 3. 异步调度 CLI 会话，子智能体上下文物理隔离。
+ * 3. 使用 child_process.spawn 异步调度 CLI 会话，彻底避免 Shell 字符转义漏洞。
  * 4. 每批次运行结束后【实时落盘】，断点续传，最终进行 Assert 完整性拦截校验。
  */
 
@@ -24,12 +24,24 @@ const colors = {
 // 并发批大小定义 (用户要求 3-5 个)
 const BATCH_SIZE = 4;
 
-// 封装异步子进程调用，支持并发运行
-function runAgentCmd(command) {
+// 使用 spawn 独立进程执行，规避 Shell 字符注入与转义解析异常
+function runAgentCmd(args) {
     return new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
+        const child = spawn('agy', args);
+        let stdout = '';
+        let stderr = '';
+        
+        child.stdout.on('data', (data) => {
+            stdout += data;
+        });
+        
+        child.stderr.on('data', (data) => {
+            stderr += data;
+        });
+        
+        child.on('close', (code) => {
+            if (code !== 0) {
+                reject(new Error(stderr.trim() || `Process exited with code ${code}`));
             } else {
                 resolve(stdout);
             }
@@ -129,12 +141,12 @@ async function executeWorkflow(workspacePath) {
 `;
             }
 
-            const safePrompt = prompt.replace(/"/g, '\\"').replace(/\n/g, ' ');
-            const command = `agy --dangerously-skip-permissions --prompt "${safePrompt}"`;
+            // 直接通过数组传参给 spawn，操作系统层级传递，免去 shell 特殊字符转义
+            const args = ['--dangerously-skip-permissions', '--prompt', prompt];
 
             try {
                 // 异步拉起子会话执行
-                const stdout = await runAgentCmd(command);
+                const stdout = await runAgentCmd(args);
                 const isReachable = stdout.includes('YES');
                 
                 // 将结果写回内存 queue 中对应的索引起点
@@ -147,13 +159,13 @@ async function executeWorkflow(workspacePath) {
                     console.log(`${colors.green}[✓] [ID: ${cand.id}] 判定结果: UNREACHABLE (安全阻断)${colors.reset}`);
                 }
             } catch (err) {
-                console.error(`${colors.red}[!] [ID: ${cand.id}] 异常崩溃: ${err.message}${colors.reset}`);
+                console.error(`${colors.red}[!] [ID: ${cand.id}] 研判异常: ${err.message}${colors.reset}`);
                 queue[index].status = 'NEEDS_REVIEW';
                 queue[index].verdict = `ERROR: Execution failed: ${err.message}`;
             }
         }));
 
-        // 【安全落盘机制】：当前批次并发运行完，立即写盘，支持断点重启，并保证即使某批次故障，状态依然不被遗漏
+        // 【安全落盘机制】：当前批次并发运行完，立即写盘，支持断点重启
         fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2), 'utf8');
         console.log(`\n${colors.cyan}[*] 批次 [Batch: ${batchNum}] 审计完毕，进度状态已落盘保存。${colors.reset}`);
     }
