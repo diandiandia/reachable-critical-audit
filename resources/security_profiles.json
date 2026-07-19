@@ -1,0 +1,1847 @@
+{
+  "schema_version": "5.0",
+  "comment": "从 GitHub CodeQL 官方安全模型中清洗提炼出的 Top 15 语言 Top 10 漏洞 Sink 函数库。涵盖 Python, C++, Java, JavaScript, C#, Go, Rust, PHP, Ruby, Swift, Kotlin, Scala, Shell, Perl, PowerShell。",
+  "rules": {
+    "java": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.java.security.CommandLineQuery",
+        "sinks": {
+          "regex": ["Runtime\\.getRuntime\\(\\)\\.exec", "ProcessBuilder", "ProcessImpl\\.start"],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#eq? @name \"exec\") arguments: (argument_list) @args)",
+            "(object_creation_expression type: (type_identifier) @type (#eq? @type \"ProcessBuilder\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "@PathVariable", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.java.security.SqlInjectionQuery",
+        "sinks": {
+          "regex": ["jdbcTemplate\\.query", "createQuery", "createNativeQuery", "executeSql"],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name arguments: (argument_list (binary_expression operator: \"+\") @expr) (#match? @name \"^(query|execute|createQuery|createNativeQuery)$\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "InsecureDeserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.java.security.UnsafeDeserializationSink",
+        "sinks": {
+          "regex": ["ObjectInputStream\\.readObject", "XMLDecoder\\.readObject", "JSON\\.parseObject", "ObjectMapper\\.readValue"],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(readObject|parseObject|readValue)$\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestBody", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "UrlConnectionSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.java.security.SsrfQuery",
+        "sinks": {
+          "regex": ["HttpClient\\.execute", "HttpURLConnection\\.openConnection", "RestTemplate\\.(get|post)For"],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(execute|openConnection|getForObject|postForObject|exchange)$\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.java.security.PathCreation",
+        "sinks": {
+          "regex": ["new FileInputStream", "new File", "Paths\\.get", "ResourceUtils\\.getFile"],
+          "ast_patterns": [
+            "(object_creation_expression type: (type_identifier) @type (#match? @type \"^(File|FileInputStream|FileOutputStream)$\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "semmle.code.java.security.AccessControl",
+        "sinks": {
+          "regex": ["\\.delete\\(", "\\.update\\(", "saveAndFlush\\("],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(delete|update|save|saveAndFlush|remove)$\"))"
+          ]
+        },
+        "verification_logic": "验证当前控制器方法体中是否包含用户属主拦截比对（如 sessionUserId == dataOwnerId）。若无任何鉴权比对代码，判定为越权漏洞。",
+        "sources": { "regex": ["@RequestParam", "@PathVariable", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-611",
+        "category": "XmlParserSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.java.security.XxeQuery",
+        "sinks": {
+          "regex": ["DocumentBuilderFactory\\.newInstance", "SAXParserFactory\\.newInstance", "XMLInputFactory\\.newInstance"],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^newInstance$\") operand: (identifier) @op (#match? @op \"^(DocumentBuilderFactory|SAXParserFactory|XMLInputFactory)$\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestBody", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "XssSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.java.security.XssQuery",
+        "sinks": {
+          "regex": ["response\\.getWriter\\(\\)\\.write", "response\\.getOutputStream\\(\\)\\.print", "\\.setHtml\\("],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(write|print|println)$\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-434",
+        "category": "UnrestrictedUpload",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.java.security.UnrestrictedFileUpload",
+        "sinks": {
+          "regex": ["\\.transferTo\\(", "Files\\.write\\(", "IOUtils\\.copy\\("],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(transferTo|write|copy)$\"))"
+          ]
+        },
+        "sources": { "regex": ["MultipartFile", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-352",
+        "category": "CsrfBypass",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "semmle.code.java.security.CsrfBypassQuery",
+        "sinks": {
+          "regex": ["\\.updatePassword\\(", "\\.deleteUser\\("],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(updatePassword|deleteUser|changeEmail)$\" ))"
+          ]
+        },
+        "verification_logic": "检查该写操作控制器或对应配置类是否禁用了 CSRF 防御令牌校验（如 http.csrf().disable()）。",
+        "sources": { "regex": ["HttpServletRequest"] }
+      }
+    ],
+    "cpp": [
+      {
+        "cwe_id": "CWE-119",
+        "category": "BufferWrite",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.BufferWrite",
+        "sinks": {
+          "regex": ["strcpy", "strcat", "sprintf", "memcpy", "gets", "scanf"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(strcpy|strcat|sprintf|memcpy|gets|scanf)$\"))"
+          ]
+        },
+        "sources": { "regex": ["argv", "getenv", "read", "recv"] }
+      },
+      {
+        "cwe_id": "CWE-250",
+        "category": "PrivilegeChange",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.PrivilegeEscalation",
+        "sinks": {
+          "regex": ["setuid", "seteuid", "setgid", "setegid", "setresuid", "setresgid"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(setuid|seteuid|setgid|setegid|setresuid|setresgid)$\"))"
+          ]
+        },
+        "sources": { "regex": ["argv", "getenv", "read"] }
+      },
+      {
+        "cwe_id": "CWE-416",
+        "category": "UseAfterFree",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.UseAfterFree",
+        "sinks": {
+          "regex": ["free"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#eq? @func \"free\"))"
+          ]
+        },
+        "sources": { "regex": ["malloc", "calloc"] }
+      },
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.CommandExecution",
+        "sinks": {
+          "regex": ["system", "popen", "execve", "execlp", "execvp"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(system|popen|execve|execlp|execvp)$\"))"
+          ]
+        },
+        "sources": { "regex": ["argv", "getenv", "read"] }
+      },
+      {
+        "cwe_id": "CWE-134",
+        "category": "FormatString",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.FormatString",
+        "sinks": {
+          "regex": ["printf\\(argv\\[", "printf\\(buf\\)", "syslog"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#eq? @func \"printf\"))"
+          ]
+        },
+        "sources": { "regex": ["argv", "buf", "getenv"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.PathTraversal",
+        "sinks": {
+          "regex": ["fopen", "open", "ifstream"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(fopen|open|ifstream)$\"))"
+          ]
+        },
+        "sources": { "regex": ["argv", "read"] }
+      },
+      {
+        "cwe_id": "CWE-476",
+        "category": "NullPointerDereference",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.NullPointerDereference",
+        "sinks": {
+          "regex": ["\\*[a-zA-Z_]"],
+          "ast_patterns": [
+            "(pointer_expression) @ptr"
+          ]
+        },
+        "sources": { "regex": ["malloc", "calloc"] }
+      },
+      {
+        "cwe_id": "CWE-190",
+        "category": "IntegerOverflow",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.IntegerOverflow",
+        "sinks": {
+          "regex": ["malloc", "memcpy"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(malloc|memcpy)$\") arguments: (argument_list (binary_expression operator: \"*\") @expr))"
+          ]
+        },
+        "sources": { "regex": ["read", "argv"] }
+      },
+      {
+        "cwe_id": "CWE-362",
+        "category": "RaceCondition",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.RaceCondition",
+        "sinks": {
+          "regex": ["pthread_mutex_lock", "lock_guard"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(pthread_mutex_lock|lock_guard)$\"))"
+          ]
+        },
+        "sources": { "regex": ["pthread_create", "thread"] }
+      },
+      {
+        "cwe_id": "CWE-908",
+        "category": "UninitializedMemoryLeak",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.cpp.security.UninitializedLeak",
+        "sinks": {
+          "regex": ["send", "write"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(send|write)$\"))"
+          ]
+        },
+        "sources": { "regex": ["struct"] }
+      }
+    ],
+    "go": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["exec\\.Command", "exec\\.CommandContext", "syscall\\.Exec"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @fn (#eq? @pkg \"exec\") (#match? @fn \"^(Command|CommandContext)$\")))"
+          ]
+        },
+        "sources": { "regex": ["\\*gin\\.Context", "http\\.Request"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/SqlInjection",
+        "sinks": {
+          "regex": ["\\.Query\\(fmt\\.Sprintf", "\\.Raw\\(fmt\\.Sprintf", "\\.Exec\\(fmt\\.Sprintf"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#match? @fn \"^(Query|Raw|Exec)$\" )))"
+          ]
+        },
+        "sources": { "regex": ["\\*gin\\.Context", "http\\.Request"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["http\\.Get", "http\\.Post", "http\\.Do", "http\\.PostForm"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @fn (#eq? @pkg \"http\") (#match? @fn \"^(Get|Post|Do|PostForm)$\")))"
+          ]
+        },
+        "sources": { "regex": ["\\*gin\\.Context", "http\\.Request"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["os\\.Open", "os\\.OpenFile", "os\\.Create", "ioutil\\.ReadFile"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @fn (#match? @pkg \"^(os|ioutil)$\") (#match? @fn \"^(Open|OpenFile|Create|ReadFile)$\")))"
+          ]
+        },
+        "sources": { "regex": ["\\*gin\\.Context", "http\\.Request"] }
+      },
+      {
+        "cwe_id": "CWE-269",
+        "category": "PrivilegeManagement",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/PrivilegeEscalation",
+        "sinks": {
+          "regex": ["syscall\\.Setuid", "syscall\\.Setgid", "syscall\\.Setreuid"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @fn (#eq? @pkg \"syscall\") (#match? @fn \"^(Setuid|Setgid|Setreuid)$\")))"
+          ]
+        },
+        "sources": { "regex": ["\\*gin\\.Context", "http\\.Request", "os\\.Args"] }
+      },
+      {
+        "cwe_id": "CWE-362",
+        "category": "RaceCondition",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/RaceCondition",
+        "sinks": {
+          "regex": ["go\\s+[a-zA-Z_]"],
+          "ast_patterns": [
+            "(go_statement) @go"
+          ]
+        },
+        "sources": { "regex": ["shared_var"] }
+      },
+      {
+        "cwe_id": "CWE-400",
+        "category": "UncontrolledResourceConsumption",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/ResourceConsumption",
+        "sinks": {
+          "regex": ["go\\s+func\\(\\)\\s*\\{.*for\\s*\\{"],
+          "ast_patterns": [
+            "(go_statement (function_expression)) @stmt"
+          ]
+        },
+        "sources": { "regex": ["net\\.Listener", "ch\\s*<-"] }
+      },
+      {
+        "cwe_id": "CWE-287",
+        "category": "ImproperAuthentication",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/AuthBypass",
+        "sinks": {
+          "regex": ["jwt\\.ParseWithClaims"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#eq? @fn \"ParseWithClaims\")))"
+          ]
+        },
+        "sources": { "regex": ["Authorization", "token"] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "BrokenCryptographic",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/WeakCrypto",
+        "sinks": {
+          "regex": ["md5\\.New", "sha1\\.New"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @fn (#match? @pkg \"^(md5|sha1)$\") (#eq? @fn \"New\")))"
+          ]
+        },
+        "sources": { "regex": ["password", "secret"] }
+      },
+      {
+        "cwe_id": "CWE-119",
+        "category": "UnsafeMemoryAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/go/ql/lib/UnsafePointer",
+        "sinks": {
+          "regex": ["unsafe\\.Pointer"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @fn (#eq? @pkg \"unsafe\") (#eq? @fn \"Pointer\")))"
+          ]
+        },
+        "sources": { "regex": ["unsafe\\.Sizeof"] }
+      }
+    ],
+    "python": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "SystemCommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/SystemCommandExecution",
+        "sinks": {
+          "regex": ["subprocess\\.run", "os\\.system", "subprocess\\.Popen", "os\\.popen"],
+          "ast_patterns": [
+            "(call (attribute value: (identifier) @pkg attribute: (identifier) @fn (#eq? @pkg \"subprocess\") (#match? @fn \"^(run|Popen|call)$\")))"
+          ]
+        },
+        "sources": { "regex": ["request\\.args", "request\\.form", "request\\.json"] }
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/CodeExecution",
+        "sinks": {
+          "regex": ["eval", "exec", "__import__"],
+          "ast_patterns": [
+            "(call function: (identifier) @func (#match? @func \"^(eval|exec|compile)$\"))"
+          ]
+        },
+        "sources": { "regex": ["request\\."] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/SqlExecution",
+        "sinks": {
+          "regex": ["\\.execute\\(.*%\\s*request", "\\.execute\\(f\".*\\{.*\\}\"", "\\.execute\\(.*format"],
+          "ast_patterns": [
+            "(call attribute: (identifier) @fn (#eq? @fn \"execute\") arguments: (argument_list (binary_expression operator: \"%\") @expr))"
+          ]
+        },
+        "sources": { "regex": ["request\\.args", "request\\.form"] }
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "InsecureDeserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/Deserialization",
+        "sinks": {
+          "regex": ["pickle\\.loads", "yaml\\.unsafe_load", "pickle\\.load"],
+          "ast_patterns": [
+            "(call (attribute value: (identifier) @pkg attribute: (identifier) @fn (#eq? @pkg \"pickle\") (#match? @fn \"^(loads|load)$\")))"
+          ]
+        },
+        "sources": { "regex": ["request\\."] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["requests\\.get", "requests\\.post", "urllib\\.request\\.urlopen"],
+          "ast_patterns": [
+            "(call (attribute value: (identifier) @pkg attribute: (identifier) @fn (#eq? @pkg \"requests\") (#match? @fn \"^(get|post|request)$\")))"
+          ]
+        },
+        "sources": { "regex": ["request\\.args", "request\\.form"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["open", "os\\.open", "shutil\\.copy"],
+          "ast_patterns": [
+            "(call function: (identifier) @func (#eq? @func \"open\"))"
+          ]
+        },
+        "sources": { "regex": ["request\\."] }
+      },
+      {
+        "cwe_id": "CWE-250",
+        "category": "PrivilegeChange",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/PrivilegeChange",
+        "sinks": {
+          "regex": ["os\\.setuid", "os\\.seteuid", "os\\.setgid"],
+          "ast_patterns": [
+            "(call (attribute value: (identifier) @pkg attribute: (identifier) @fn (#eq? @pkg \"os\") (#match? @fn \"^(setuid|seteuid|setgid)$\")))"
+          ]
+        },
+        "sources": { "regex": ["sys\\.argv", "os\\.environ"] }
+      },
+      {
+        "cwe_id": "CWE-601",
+        "category": "UrlRedirection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/UrlRedirection",
+        "sinks": {
+          "regex": ["redirect"],
+          "ast_patterns": [
+            "(call function: (identifier) @func (#eq? @func \"redirect\"))"
+          ]
+        },
+        "sources": { "regex": ["request\\.args\\.get\\(['\"]next['\"]"] }
+      },
+      {
+        "cwe_id": "CWE-287",
+        "category": "WeakSession",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/AuthBypass",
+        "sinks": {
+          "regex": ["make_response\\(session"],
+          "ast_patterns": [
+            "(call function: (identifier) @func (#eq? @func \"make_response\"))"
+          ]
+        },
+        "sources": { "regex": ["session"] }
+      },
+      {
+        "cwe_id": "CWE-295",
+        "category": "DisabledSslValidation",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/python/ql/lib/WeakSsl",
+        "sinks": {
+          "regex": ["verify\\s*=\\s*False"],
+          "ast_patterns": [
+            "(keyword_argument name: (identifier) @name value: (false) (#eq? @name \"verify\"))"
+          ]
+        },
+        "sources": { "regex": ["requests\\.get"] }
+      }
+    ],
+    "javascript": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "SystemCommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["child_process\\.exec", "child_process\\.spawn", "child_process\\.execSync"],
+          "ast_patterns": [
+            "(call_expression function: (member_expression object: (identifier) @pkg property: (property_identifier) @fn (#eq? @pkg \"child_process\") (#match? @fn \"^(exec|spawn|execSync|execFile)$\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query", "req\\.body", "req\\.params"] }
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/CodeExecution",
+        "sinks": {
+          "regex": ["eval", "Function", "vm\\.runInContext"],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(eval|Function)$\"))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query", "req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-1321",
+        "category": "PrototypePollution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/PrototypePollution",
+        "sinks": {
+          "regex": ["__proto__", "constructor\\.prototype"],
+          "ast_patterns": [
+            "(string) @str (#match? @str \"^(__proto__|prototype)$\")"
+          ]
+        },
+        "sources": { "regex": ["req\\.body", "req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/SqlInjection",
+        "sinks": {
+          "regex": ["\\.query\\(.*\\+.*\\)", "\\.execute\\(.*\\+.*\\)"],
+          "ast_patterns": [
+            "(call_expression function: (member_expression property: (property_identifier) @fn (#match? @fn \"^(query|execute)$\")) arguments: (argument_list (binary_expression operator: \"+\") @expr))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query", "req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["axios\\.get", "fetch", "request\\.get"],
+          "ast_patterns": [
+            "(call_expression function: (member_expression object: (identifier) @pkg property: (property_identifier) @fn (#eq? @pkg \"axios\") (#match? @fn \"^(get|post|request)$\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query", "req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["fs\\.readFile", "fs\\.readFileSync", "fs\\.createReadStream"],
+          "ast_patterns": [
+            "(call_expression function: (member_expression object: (identifier) @pkg property: (property_identifier) @fn (#eq? @pkg \"fs\") (#match? @fn \"^(readFile|readFileSync|createReadStream)$\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query", "req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-269",
+        "category": "PrivilegeChange",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/PrivilegeChange",
+        "sinks": {
+          "regex": ["process\\.setuid", "process\\.setgid"],
+          "ast_patterns": [
+            "(call_expression function: (member_expression object: (identifier) @pkg property: (property_identifier) @fn (#eq? @pkg \"process\") (#match? @fn \"^(setuid|setgid)$\")))"
+          ]
+        },
+        "sources": { "regex": ["process\\.argv", "req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-601",
+        "category": "UrlRedirection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/UrlRedirection",
+        "sinks": {
+          "regex": ["res\\.redirect"],
+          "ast_patterns": [
+            "(call_expression function: (member_expression object: (identifier) @pkg property: (property_identifier) @fn (#eq? @pkg \"res\") (#eq? @fn \"redirect\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-281",
+        "category": "ImproperPermissions",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/FilePermissions",
+        "sinks": {
+          "regex": ["fs\\.chmod", "fs\\.chmodSync"],
+          "ast_patterns": [
+            "(call_expression function: (member_expression object: (identifier) @pkg property: (property_identifier) @fn (#eq? @pkg \"fs\") (#match? @fn \"^(chmod|chmodSync)$\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-400",
+        "category": "RegexDoS",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/javascript/ql/lib/ReDos",
+        "sinks": {
+          "regex": ["new RegExp", "\\.match"],
+          "ast_patterns": [
+            "(object_creation_expression type: (type_identifier) @type (#eq? @type \"RegExp\"))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query", "req\\.body"] }
+      }
+    ],
+    "csharp": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "SystemCommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.CommandExecution",
+        "sinks": {
+          "regex": ["Process\\.Start"],
+          "ast_patterns": [
+            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#eq? @fn \"Start\")))"
+          ]
+        },
+        "sources": { "regex": ["Request\\.Query", "Request\\.Form"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.SqlInjection",
+        "sinks": {
+          "regex": ["ExecuteNonQuery", "ExecuteReader", "ExecuteScalar"],
+          "ast_patterns": [
+            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#match? @fn \"^(ExecuteNonQuery|ExecuteReader|ExecuteScalar)$\")))"
+          ]
+        },
+        "sources": { "regex": ["Request\\.Query", "Request\\.Form"] }
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "Deserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.InsecureDeserialization",
+        "sinks": {
+          "regex": ["BinaryFormatter\\.Deserialize", "LosFormatter\\.Deserialize"],
+          "ast_patterns": [
+            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#eq? @fn \"Deserialize\")))"
+          ]
+        },
+        "sources": { "regex": ["Request\\.Body"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.Ssrf",
+        "sinks": {
+          "regex": ["HttpClient\\.GetAsync", "WebRequest\\.Create"],
+          "ast_patterns": [
+            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#match? @fn \"^(GetAsync|PostAsync|Create)$\")))"
+          ]
+        },
+        "sources": { "regex": ["Request\\.Query"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.PathTraversal",
+        "sinks": {
+          "regex": ["File\\.Open", "File\\.ReadAllText", "Path\\.Combine"],
+          "ast_patterns": [
+            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#match? @fn \"^(Open|ReadAllText|Combine)$\")))"
+          ]
+        },
+        "sources": { "regex": ["Request\\.Query"] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "semmle.code.csharp.security.AccessControl",
+        "sinks": {
+          "regex": ["Authorize"],
+          "ast_patterns": [
+            "(attribute name: (identifier) @name (#eq? @name \"Authorize\"))"
+          ]
+        },
+        "verification_logic": "验证写操作控制器的入口是否强制关联了 Authorize 鉴权过滤属性。若属于匿名无鉴权路由，判定为垂直鉴权越权缺陷。",
+        "sources": { "regex": ["Request\\.Cookies"] }
+      },
+      {
+        "cwe_id": "CWE-611",
+        "category": "XmlParserSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.Xxe",
+        "sinks": {
+          "regex": ["XmlDocument\\.LoadXml", "XmlTextReader"],
+          "ast_patterns": [
+            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#match? @fn \"^(LoadXml|Load)$\")))"
+          ]
+        },
+        "sources": { "regex": ["Request\\.Body"] }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "XssSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.Xss",
+        "sinks": {
+          "regex": ["Response\\.Write"],
+          "ast_patterns": [
+            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#eq? @fn \"Write\") Expression: (identifier) @op (#eq? @op \"Response\")))"
+          ]
+        },
+        "sources": { "regex": ["Request\\.Query"] }
+      },
+      {
+        "cwe_id": "CWE-200",
+        "category": "InformationDisclosure",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.InfoLeak",
+        "sinks": {
+          "regex": ["WriteAsync\\(ex\\.ToString"],
+          "ast_patterns": [
+            "(invocation_expression arguments: (argument_list (invocation_expression expression: (member_access_expression name: (identifier) @fn (#eq? @fn \"ToString\")))))"
+          ]
+        },
+        "sources": { "regex": ["Exception"] }
+      },
+      {
+        "cwe_id": "CWE-250",
+        "category": "PrivilegeChange",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semmle.code.csharp.security.PrivilegeEscalation",
+        "sinks": {
+          "regex": ["WindowsIdentity\\.Impersonate"],
+          "ast_patterns": [
+            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#eq? @fn \"Impersonate\")))"
+          ]
+        },
+        "sources": { "regex": ["Request"] }
+      }
+    ],
+    "rust": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["Command::new"],
+          "ast_patterns": [
+            "(call_expression function: (struct_expression type: (type_identifier) @type (#eq? @type \"Command\")))"
+          ]
+        },
+        "sources": { "regex": ["args", "req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-119",
+        "category": "UnsafeMemoryAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/UnsafeCode",
+        "sinks": {
+          "regex": ["unsafe\\s*\\{", "std::ptr::copy", "from_raw_parts"],
+          "ast_patterns": [
+            "(unsafe_block) @block"
+          ]
+        },
+        "sources": { "regex": ["\\*mut", "\\*const"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["File::open", "fs::read_to_string"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#match? @fn \"^(open|read_to_string)$\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-362",
+        "category": "RaceCondition",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/RaceCondition",
+        "sinks": {
+          "regex": ["thread::spawn"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#eq? @fn \"spawn\")))"
+          ]
+        },
+        "sources": { "regex": ["Rc::clone"] }
+      },
+      {
+        "cwe_id": "CWE-250",
+        "category": "PrivilegeChange",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/PrivilegeChange",
+        "sinks": {
+          "regex": ["libc::setuid", "libc::seteuid"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#match? @fn \"^(setuid|seteuid)$\")))"
+          ]
+        },
+        "sources": { "regex": ["args"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/SqlInjection",
+        "sinks": {
+          "regex": ["sqlx::query"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#eq? @fn \"query\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["reqwest::get", "reqwest::Client::new"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#eq? @fn \"get\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-400",
+        "category": "ResourceLimit",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/ResourceConsumption",
+        "sinks": {
+          "regex": ["Vec::with_capacity"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#eq? @fn \"with_capacity\")))"
+          ]
+        },
+        "sources": { "regex": ["req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "WeakCrypto",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/WeakCrypto",
+        "sinks": {
+          "regex": ["Md5::new"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#eq? @fn \"new\")))"
+          ]
+        },
+        "sources": { "regex": ["password"] }
+      },
+      {
+        "cwe_id": "CWE-908",
+        "category": "UninitializedMemory",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/rust/ql/lib/UninitializedMemory",
+        "sinks": {
+          "regex": ["MaybeUninit::uninit"],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#eq? @fn \"uninit\")))"
+          ]
+        },
+        "sources": { "regex": ["assume_init"] }
+      }
+    ],
+    "php": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["exec\\(", "system\\(", "shell_exec\\(", "passthru\\(", "popen\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_GET", "\\$_POST", "\\$_REQUEST"] }
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/CodeExecution",
+        "sinks": {
+          "regex": ["eval\\(", "assert\\(", "create_function\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_GET", "\\$_POST"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/SqlInjection",
+        "sinks": {
+          "regex": ["mysqli_query\\(", "PDO::query\\(", "\\->query\\(.*\\$.*\\)"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_GET", "\\$_POST"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["file_get_contents\\(", "readfile\\(", "fopen\\(", "include\\(", "require\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_GET", "\\$_POST"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["curl_exec\\(", "file_get_contents\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_GET", "\\$_POST"] }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "XssSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/Xss",
+        "sinks": {
+          "regex": ["echo\\s+\\$.*", "print\\s+\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_GET", "\\$_POST"] }
+      },
+      {
+        "cwe_id": "CWE-434",
+        "category": "UnrestrictedUpload",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/UnrestrictedUpload",
+        "sinks": {
+          "regex": ["move_uploaded_file\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_FILES"] }
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "Deserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/Deserialization",
+        "sinks": {
+          "regex": ["unserialize\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_GET", "\\$_POST"] }
+      },
+      {
+        "cwe_id": "CWE-601",
+        "category": "UrlRedirection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/UrlRedirection",
+        "sinks": {
+          "regex": ["header\\(['\"]Location:"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$_GET"] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "github.com/github/codeql/php/ql/lib/AccessControl",
+        "sinks": {
+          "regex": ["UPDATE\\s+.*WHERE", "DELETE\\s+.*WHERE"],
+          "ast_patterns": []
+        },
+        "verification_logic": "验证当前修改/删除数据的逻辑中，是否缺失了对于被操作记录的 owner 与当前 session 用户 ID 的相等比对校验。",
+        "sources": { "regex": ["\\$_SESSION"] }
+      }
+    ],
+    "ruby": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["system\\(", "exec\\(", "IO\\.popen\\(", "Open3\\.popen3\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["params\\["] }
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/CodeExecution",
+        "sinks": {
+          "regex": ["eval\\(", "instance_eval\\(", "class_eval\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["params\\["] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/SqlInjection",
+        "sinks": {
+          "regex": ["connection\\.execute\\(", "\\.where\\(\".*#\\{.*\\}\"\\)"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["params\\["] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["File\\.open\\(", "File\\.read\\(", "IO\\.read\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["params\\["] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["Net::HTTP\\.get\\(", "open\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["params\\["] }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "XssSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/Xss",
+        "sinks": {
+          "regex": ["\\.html_safe"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["params\\["] }
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "Deserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/Deserialization",
+        "sinks": {
+          "regex": ["Marshal\\.load\\(", "YAML\\.load\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["params\\["] }
+      },
+      {
+        "cwe_id": "CWE-601",
+        "category": "UrlRedirection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/UrlRedirection",
+        "sinks": {
+          "regex": ["redirect_to\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["params\\["] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/AccessControl",
+        "sinks": {
+          "regex": ["\\.update\\(", "\\.destroy\\("],
+          "ast_patterns": []
+        },
+        "verification_logic": "验证当前更新或删除控制器的逻辑体中，是否确实在执行前比对了当前 session 用户的 ID 权限。",
+        "sources": { "regex": ["session\\["] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "WeakCrypto",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/ruby/ql/lib/WeakCrypto",
+        "sinks": {
+          "regex": ["Digest::MD5", "Digest::SHA1"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password"] }
+      }
+    ],
+    "swift": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["Process\\(\\)", "posix_spawn"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["CommandLine\\.arguments"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["FileHandle\\(forReadingAtPath:", "FileManager\\.default\\.contents\\(atPath:"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["CommandLine\\.arguments"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["URLSession\\.shared\\.dataTask\\(with:"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["CommandLine\\.arguments"] }
+      },
+      {
+        "cwe_id": "CWE-119",
+        "category": "UnsafeMemoryAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/UnsafeMemory",
+        "sinks": {
+          "regex": ["UnsafeMutablePointer", "withUnsafeBytes"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["CommandLine\\.arguments"] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "WeakCrypto",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/WeakCrypto",
+        "sinks": {
+          "regex": ["CC_MD5", "CC_SHA1"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password"] }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "XssSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/Xss",
+        "sinks": {
+          "regex": ["loadHTMLString\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["CommandLine\\.arguments"] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/AccessControl",
+        "sinks": {
+          "regex": ["SecKeyRawSign"],
+          "ast_patterns": []
+        },
+        "verification_logic": "验证当前进行证书或公私钥签名验证的代码块中，是否包含防重放与属主合法性比对。",
+        "sources": { "regex": ["SecTrustEvaluate"] }
+      },
+      {
+        "cwe_id": "CWE-295",
+        "category": "DisabledSslValidation",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/WeakSsl",
+        "sinks": {
+          "regex": ["allowInvalidCertificates\\s*=\\s*true"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["URLSession"] }
+      },
+      {
+        "cwe_id": "CWE-200",
+        "category": "InformationDisclosure",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/InfoLeak",
+        "sinks": {
+          "regex": ["print\\(error"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["error"] }
+      },
+      {
+        "cwe_id": "CWE-312",
+        "category": "CleartextStorage",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/swift/ql/lib/InsecureStorage",
+        "sinks": {
+          "regex": ["UserDefaults\\.standard\\.set"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password", "token"] }
+      }
+    ],
+    "kotlin": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.CommandLine",
+        "sinks": {
+          "regex": ["Runtime\\.getRuntime\\(\\)\\.exec", "ProcessBuilder"],
+          "ast_patterns": [
+            "(call_expression function: (navigation_expression (identifier) @pkg (#eq? @pkg \"ProcessBuilder\")))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.SqlInjection",
+        "sinks": {
+          "regex": ["jdbcTemplate\\.query", "createQuery", "createNativeQuery"],
+          "ast_patterns": [
+            "(call_expression function: (navigation_expression (identifier) @fn (#match? @fn \"^(query|execute|createQuery)$\")))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.PathCreation",
+        "sinks": {
+          "regex": ["File\\(", "FileInputStream\\("],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @type (#match? @type \"^(File|FileInputStream)$\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "UrlConnectionSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.Ssrf",
+        "sinks": {
+          "regex": ["HttpClient\\.execute", "URL\\.openConnection"],
+          "ast_patterns": [
+            "(call_expression function: (navigation_expression (identifier) @fn (#match? @fn \"^(execute|openConnection)$\")))"
+          ]
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "InsecureDeserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.Deserialization",
+        "sinks": {
+          "regex": ["readObject\\(", "readValue\\("],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(readObject|readValue)$\"))"
+          ]
+        },
+        "sources": { "regex": ["@RequestBody", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "XssSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.Xss",
+        "sinks": {
+          "regex": ["response\\.writer\\.write", "response\\.outputStream\\.print"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["@RequestParam", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-611",
+        "category": "XmlParserSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.Xxe",
+        "sinks": {
+          "regex": ["DocumentBuilderFactory\\.newInstance"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["@RequestBody", "HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "org.jetbrains.kotlin.security.AccessControl",
+        "sinks": {
+          "regex": ["\\.delete\\(", "\\.update\\(", "saveAndFlush\\("],
+          "ast_patterns": []
+        },
+        "verification_logic": "验证在 Kotlin 对应的 Spring / Ktor 框架的写控制器中，是否包含对当前登录用户 Session ID 与数据所有者 ID 的安全核对逻辑。",
+        "sources": { "regex": ["HttpServletRequest"] }
+      },
+      {
+        "cwe_id": "CWE-434",
+        "category": "UnrestrictedUpload",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.FileUpload",
+        "sinks": {
+          "regex": ["\\.transferTo\\(", "Files\\.write\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["MultipartFile"] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "WeakCrypto",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.jetbrains.kotlin.security.WeakCrypto",
+        "sinks": {
+          "regex": ["MessageDigest\\.getInstance\\(\"MD5\"\\)", "MessageDigest\\.getInstance\\(\"SHA-1\"\\)"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password"] }
+      }
+    ],
+    "scala": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.CommandLine",
+        "sinks": {
+          "regex": ["Process\\(", "\\.!\n", "\\.!!\n"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["args", "req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.SqlInjection",
+        "sinks": {
+          "regex": ["SQL\\(\".*#\\{.*\\}\"\\)", "connection\\.createStatement\\(\\)\\.execute"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.PathCreation",
+        "sinks": {
+          "regex": ["new File\\(", "Source\\.fromFile\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "UrlConnectionSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.Ssrf",
+        "sinks": {
+          "regex": ["Http\\(url\\)", "new URL\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "Deserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.Deserialization",
+        "sinks": {
+          "regex": ["readObject\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "XssSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.Xss",
+        "sinks": {
+          "regex": ["response\\.writer\\.write", "Html\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["req\\.query"] }
+      },
+      {
+        "cwe_id": "CWE-611",
+        "category": "XmlParserSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.Xxe",
+        "sinks": {
+          "regex": ["XML\\.loadString\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["req\\.body"] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "org.scala-lang.security.AccessControl",
+        "sinks": {
+          "regex": ["\\.update\\(", "\\.delete\\("],
+          "ast_patterns": []
+        },
+        "verification_logic": "验证 Scala Play / Akka HTTP 框架写操作入口中，是否缺乏当前 Session 用户对该条记录的属主鉴权校验。",
+        "sources": { "regex": ["session"] }
+      },
+      {
+        "cwe_id": "CWE-434",
+        "category": "UnrestrictedUpload",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.FileUpload",
+        "sinks": {
+          "regex": ["Files\\.write\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["Multipart"] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "WeakCrypto",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "org.scala-lang.security.WeakCrypto",
+        "sinks": {
+          "regex": ["MessageDigest\\.getInstance\\(\"MD5\"\\)"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password"] }
+      }
+    ],
+    "shell": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["eval\\s+\\$.*", "sh\\s+-c\\s+\\$.*", "bash\\s+-c\\s+\\$.*", "\\$\\(.*\\$.*\\)"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$1", "\\$2", "\\$@", "\\*"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "PathTraversal",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["cat\\s+\\$.*", "rm\\s+-rf\\s+\\$.*", "mv\\s+.*\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$1", "\\$2", "\\$@"] }
+      },
+      {
+        "cwe_id": "CWE-269",
+        "category": "PrivilegeManagement",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/PrivilegeEscalation",
+        "sinks": {
+          "regex": ["sudo\\s+.*\\$.*", "su\\s+-c\\s+.*\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$1", "\\$2"] }
+      },
+      {
+        "cwe_id": "CWE-732",
+        "category": "ImproperPermissions",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/Permissions",
+        "sinks": {
+          "regex": ["chmod\\s+777", "chmod\\s+a\\+w"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$1"] }
+      },
+      {
+        "cwe_id": "CWE-287",
+        "category": "ImproperAuthentication",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/AuthBypass",
+        "sinks": {
+          "regex": ["echo\\s+.*\\s*>>\\s*~/.ssh/authorized_keys"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$1"] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "WeakCrypto",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/WeakCrypto",
+        "sinks": {
+          "regex": ["openssl\\s+enc\\s+-des", "openssl\\s+enc\\s+-rc4"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password"] }
+      },
+      {
+        "cwe_id": "CWE-400",
+        "category": "ResourceConsumption",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/ForkBomb",
+        "sinks": {
+          "regex": [":\\(\\)\\{:\\|:&\\};:"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": [""] }
+      },
+      {
+        "cwe_id": "CWE-200",
+        "category": "InformationDisclosure",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/InfoLeak",
+        "sinks": {
+          "regex": ["echo\\s+\\$password", "printenv\\s+SECRET"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$password", "\\$SECRET"] }
+      },
+      {
+        "cwe_id": "CWE-295",
+        "category": "DisabledSslValidation",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/WeakSsl",
+        "sinks": {
+          "regex": ["curl\\s+.*-k\\s+", "curl\\s+.*--insecure", "wget\\s+.*--no-check-certificate"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": [""] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/shell/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["curl\\s+\\$.*", "wget\\s+\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$1", "\\$2"] }
+      }
+    ],
+    "perl": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["system\\(", "exec\\(", "qx/.*\\$.*/", "open\\(.*\\|.*\\)"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["@ARGV", "stdin"] }
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/CodeExecution",
+        "sinks": {
+          "regex": ["eval\\s+\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["@ARGV"] }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/SqlInjection",
+        "sinks": {
+          "regex": ["\\$dbh\\->do\\(", "\\$dbh\\->prepare\\(.*\\$.*\\)"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["@ARGV"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["open\\(.*<.*\\$.*\\)"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["@ARGV"] }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "XssSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/Xss",
+        "sinks": {
+          "regex": ["print\\s+\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["@ARGV"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["LWP::UserAgent\\->new\\(\\)->get\\("],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["@ARGV"] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/AccessControl",
+        "sinks": {
+          "regex": ["UPDATE\\s+.*WHERE", "DELETE\\s+.*WHERE"],
+          "ast_patterns": []
+        },
+        "verification_logic": "验证对于记录的写/删动作中，逻辑中是否完全缺失了对于当前 session 用户与被操作数据的 owner 相等性比对。",
+        "sources": { "regex": ["session"] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "WeakCrypto",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/WeakCrypto",
+        "sinks": {
+          "regex": ["Digest::MD5"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password"] }
+      },
+      {
+        "cwe_id": "CWE-200",
+        "category": "InformationDisclosure",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/InfoLeak",
+        "sinks": {
+          "regex": ["warn\\s+\\$.*", "die\\s+\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["error"] }
+      },
+      {
+        "cwe_id": "CWE-295",
+        "category": "DisabledSslValidation",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/perl/ql/lib/WeakSsl",
+        "sinks": {
+          "regex": ["ssl_opts\\s*=>\\s*.*verify_hostname\\s*=>\\s*0"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["LWP"] }
+      }
+    ],
+    "powershell": [
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandExecution",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/CommandExecution",
+        "sinks": {
+          "regex": ["Invoke-Expression", "iex\\s+\\$.*", "Start-Process\\s+.*-FilePath\\s+\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$args", "\\$Input"] }
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "FileSystemAccess",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/FileSystemAccess",
+        "sinks": {
+          "regex": ["Get-Content\\s+\\$.*", "Remove-Item\\s+\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$args"] }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Request",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/Ssrf",
+        "sinks": {
+          "regex": ["Invoke-WebRequest\\s+.*-Uri\\s+\\$.*", "Invoke-RestMethod\\s+.*-Uri\\s+\\$.*"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$args"] }
+      },
+      {
+        "cwe_id": "CWE-269",
+        "category": "PrivilegeManagement",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/PrivilegeEscalation",
+        "sinks": {
+          "regex": ["Start-Process\\s+.*-Verb\\s+RunAs"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$args"] }
+      },
+      {
+        "cwe_id": "CWE-732",
+        "category": "ImproperPermissions",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/Permissions",
+        "sinks": {
+          "regex": ["Set-Acl\\s+.*-AclObject"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$args"] }
+      },
+      {
+        "cwe_id": "CWE-295",
+        "category": "DisabledSslValidation",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/WeakSsl",
+        "sinks": {
+          "regex": ["ServerCertificateValidationCallback\\s*=\\s*\\{\\s*\\$true\\s*\\}"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": [""] }
+      },
+      {
+        "cwe_id": "CWE-327",
+        "category": "WeakCrypto",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/WeakCrypto",
+        "sinks": {
+          "regex": ["\\[System\\.Security\\.Cryptography\\.MD5\\]"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password"] }
+      },
+      {
+        "cwe_id": "CWE-200",
+        "category": "InformationDisclosure",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/InfoLeak",
+        "sinks": {
+          "regex": ["Write-Host\\s+\\$password", "Write-Debug\\s+\\$password"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["\\$password"] }
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/AccessControl",
+        "sinks": {
+          "regex": ["Set-Content", "Clear-Content"],
+          "ast_patterns": []
+        },
+        "verification_logic": "验证当前修改/覆盖敏感文件的脚本块中，是否缺乏对当前执行会话主体的角色鉴权条件校验。",
+        "sources": { "regex": ["Principal"] }
+      },
+      {
+        "cwe_id": "CWE-312",
+        "category": "CleartextStorage",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "github.com/github/codeql/powershell/ql/lib/InsecureStorage",
+        "sinks": {
+          "regex": ["Export-Clixml\\s+.*-Path"],
+          "ast_patterns": []
+        },
+        "sources": { "regex": ["password", "credential"] }
+      }
+    ]
+  }
+}
