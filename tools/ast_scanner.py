@@ -21,11 +21,41 @@ class ASTCoarseScanner:
         ".c": "cpp",
         ".h": "cpp",
         ".hpp": "cpp",
+        ".hxx": "cpp",
+        ".c++": "cpp",
+        ".h++": "cpp",
         ".py": "python",
+        ".pyw": "python",
         ".go": "go",
         ".rs": "rust",
         ".js": "javascript",
-        ".ts": "javascript"
+        ".ts": "javascript",
+        ".jsx": "javascript",
+        ".tsx": "javascript",
+        ".mjs": "javascript",
+        ".cjs": "javascript",
+        ".cs": "csharp",
+        ".csx": "csharp",
+        ".php": "php",
+        ".phtml": "php",
+        ".php3": "php",
+        ".php4": "php",
+        ".php5": "php",
+        ".phps": "php",
+        ".rb": "ruby",
+        ".rbw": "ruby",
+        ".rake": "ruby",
+        ".swift": "swift",
+        ".kt": "kotlin",
+        ".kts": "kotlin",
+        ".scala": "scala",
+        ".sh": "shell",
+        ".bash": "shell",
+        ".zsh": "shell",
+        ".pl": "perl",
+        ".pm": "perl",
+        ".t": "perl",
+        ".ps1": "powershell"
     }
 
     def __init__(self, profile_path):
@@ -41,6 +71,8 @@ class ASTCoarseScanner:
                 continue
             
             for file in files:
+                if ".min." in file:
+                    continue
                 ext = os.path.splitext(file)[1].lower()
                 lang = self.EXTENSION_MAP.get(ext)
                 if not lang or lang not in rules:
@@ -110,6 +142,10 @@ class ASTCoarseScanner:
                 # 匹配该 S-expression 属于哪一个 CWE
                 matched_rule = self._find_rule_by_ast(lang_rules, query_str)
                 
+                sink_content = line_content.strip()
+                if len(sink_content) > 1000:
+                    sink_content = sink_content[:1000] + "... [TRUNCATED]"
+
                 candidates.append({
                     "language": lang,
                     "cwe_id": matched_rule["cwe_id"],
@@ -117,7 +153,7 @@ class ASTCoarseScanner:
                     "type": matched_rule.get("type", "TAINT_ANALYSIS"),
                     "file_path": file_path,
                     "line_number": line_no,
-                    "sink_content": line_content.strip(),
+                    "sink_content": sink_content,
                     "sources_regex": matched_rule.get("sources", {}).get("regex", []),
                     "reachability_constraints": matched_rule.get("reachability_constraints", ""),
                     "verification_logic": matched_rule.get("verification_logic", "")
@@ -133,6 +169,10 @@ class ASTCoarseScanner:
             for rx, raw_pat in compiled:
                 if rx.search(line):
                     matched_rule = self._find_rule_by_regex(lang_rules, raw_pat)
+                    sink_content = line.strip()
+                    if len(sink_content) > 1000:
+                        sink_content = sink_content[:1000] + "... [TRUNCATED]"
+
                     candidates.append({
                         "language": lang,
                         "cwe_id": matched_rule["cwe_id"],
@@ -140,7 +180,7 @@ class ASTCoarseScanner:
                         "type": matched_rule.get("type", "TAINT_ANALYSIS"),
                         "file_path": file_path,
                         "line_number": line_idx + 1,
-                        "sink_content": line.strip(),
+                        "sink_content": sink_content,
                         "sources_regex": matched_rule.get("sources", {}).get("regex", []),
                         "reachability_constraints": matched_rule.get("reachability_constraints", ""),
                         "verification_logic": matched_rule.get("verification_logic", "")
@@ -162,6 +202,7 @@ class ASTCoarseScanner:
 
 if __name__ == "__main__":
     workspace = sys.argv[1] if len(sys.argv) > 1 else "."
+    output_dir = sys.argv[2] if len(sys.argv) > 2 else workspace
     script_dir = os.path.dirname(os.path.abspath(__file__))
     profile = os.path.join(script_dir, "../resources/security_profiles.json")
     
@@ -169,8 +210,8 @@ if __name__ == "__main__":
     results = scanner.scan(workspace)
     
     # 写入待验证队列
-    queue_path = os.path.join(workspace, "verify_queue.json")
+    queue_path = os.path.join(output_dir, "verify_queue.json")
     with open(queue_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     
-    print(f"SUCCESS: AST/Regex Scan complete. Found {len(results)} Candidates. Written to verify_queue.json")
+    print(f"SUCCESS: AST/Regex Scan complete. Found {len(results)} Candidates. Written to {queue_path}")

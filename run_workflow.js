@@ -52,8 +52,15 @@ function runAgentCmd(args) {
 async function executeWorkflow(workspacePath) {
     console.log(`${colors.cyan}[*] 初始化 Reachable Critical Audit 工作流...${colors.reset}`);
     const scannerPath = path.join(__dirname, 'tools', 'ast_scanner.py');
-    const queuePath = path.join(workspacePath, 'verify_queue.json');
-    const reportPath = path.join(workspacePath, 'reachable_vulnerabilities_report.json');
+    
+    // 创建特殊文件夹以防污染源码
+    const outputDir = path.join(workspacePath, 'audit_results');
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+    }
+    
+    const queuePath = path.join(outputDir, 'verify_queue.json');
+    const reportPath = path.join(outputDir, 'reachable_vulnerabilities_report.json');
 
     // --- 阶段 1: 扫描/加载候选队列 ---
     let queue = [];
@@ -65,7 +72,7 @@ async function executeWorkflow(workspacePath) {
         try {
             // 同步执行初筛作为第一步，秒级速度
             const { execSync } = require('child_process');
-            execSync(`python3 "${scannerPath}" "${workspacePath}"`, { stdio: 'inherit' });
+            execSync(`python3 "${scannerPath}" "${workspacePath}" "${outputDir}"`, { stdio: 'inherit' });
             queue = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
         } catch (error) {
             console.error(`${colors.red}[Error] AST 扫描器执行失败. 流程终止。${colors.reset}`);
@@ -124,20 +131,20 @@ async function executeWorkflow(workspacePath) {
 `;
             } else {
                 prompt = `
-请对以下代码候选点进行【污点可达性分析】。你可以调用 find_callers, read_file_segment 等本地工具：
+请对以下代码的目标调用进行【数据流参数控制关系分析】。你可以使用 find_callers, read_file_segment 等代码定位工具：
 - 语言: ${cand.language}
-- CWE类别: ${cand.cwe_id} (${cand.category})
-- 敏感 Sink 点文件: ${cand.file_path}
-- 敏感 Sink 行号: ${cand.line_number}
-- 敏感 Sink 内容: ${cand.sink_content}
-- 验证约束指导: ${cand.reachability_constraints}
+- 分析类别: ${cand.category}
+- 目标调用文件: ${cand.file_path}
+- 目标调用行号: ${cand.line_number}
+- 目标代码内容: ${cand.sink_content}
+- 校验要求: ${cand.reachability_constraints || "分析入参是否经过严格的安全过滤或强类型转换"}
 
 验证步骤：
-1. 查找调用该敏感 Sink 方法的上游函数。
-2. 检查这些上游调用链路中的参数传递，是否能被外部输入源(${cand.sources_regex.join(', ')})控制。
-3. 校验路径上是否有类型转换或 Sanitizer 将数据流阻断。
+1. 追溯调用该目标函数代码的上游函数和控制器入口。
+2. 检查这些上游调用链中的参数，是否直接或间接地被外部可控输入（例如 ${cand.sources_regex.join(', ')} 等）所控制。
+3. 校验路径上是否有健全的类型转换、白名单过滤或编码转义处理将外部控制关系隔断。
 
-请输出最终结论：YES (确认真实污染可达) 或 NO (不可达)。并给出完整的分析证据链。
+请输出最终结论：YES (确认外部输入可控制该目标调用且没有被妥善处理) 或 NO (不可控/或已被安全隔离)。并给出完整的分析证据链。
 `;
             }
 
@@ -147,16 +154,26 @@ async function executeWorkflow(workspacePath) {
             try {
                 // 异步拉起子会话执行
                 const stdout = await runAgentCmd(args);
-                const isReachable = stdout.includes('YES');
+                const hasYes = stdout.includes('YES');
+                const hasNo = stdout.includes('NO');
+                
+                let status = 'NEEDS_REVIEW';
+                if (hasYes && !hasNo) {
+                    status = 'REACHABLE';
+                } else if (hasNo && !hasYes) {
+                    status = 'UNREACHABLE';
+                }
                 
                 // 将结果写回内存 queue 中对应的索引起点
-                queue[index].status = isReachable ? 'REACHABLE' : 'UNREACHABLE';
+                queue[index].status = status;
                 queue[index].verdict = stdout;
 
-                if (isReachable) {
+                if (status === 'REACHABLE') {
                     console.log(`${colors.red}[!] [ID: ${cand.id}] 判定结果: REACHABLE (确认真实漏洞)${colors.reset}`);
-                } else {
+                } else if (status === 'UNREACHABLE') {
                     console.log(`${colors.green}[✓] [ID: ${cand.id}] 判定结果: UNREACHABLE (安全阻断)${colors.reset}`);
+                } else {
+                    console.log(`${colors.yellow}[?] [ID: ${cand.id}] 判定结果: NEEDS_REVIEW (研判不确定/拒绝)${colors.reset}`);
                 }
             } catch (err) {
                 console.error(`${colors.red}[!] [ID: ${cand.id}] 研判异常: ${err.message}${colors.reset}`);
