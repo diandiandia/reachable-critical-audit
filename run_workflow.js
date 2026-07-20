@@ -54,7 +54,7 @@ async function executeWorkflow(workspacePath) {
     const scannerPath = path.join(__dirname, 'tools', 'ast_scanner.py');
     
     // 创建特殊文件夹以防污染源码
-    const outputDir = path.join(workspacePath, 'audit_results');
+    const outputDir = path.join(workspacePath, '.audit_results');
     if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
     }
