@@ -219,10 +219,147 @@ async function executeWorkflow(workspacePath) {
     }
 
     console.log(`${colors.green}[✓] 完整性校验通过：所有 ${finalQueue.length} 个安全问题已100%分析归档，无任何跳过。${colors.reset}`);
-    compileReport(finalQueue, reportPath);
+
+    // --- 阶段 4: 有向自主逻辑漏洞探索 (Guided Fuzzy Exploration) ---
+    console.log(`\n==================================================`);
+    console.log(`${colors.yellow}[*] 阶段 4: 启动有向高危模块自主逻辑漏洞探索...${colors.reset}`);
+    
+    const highRiskFiles = findHighRiskModules(workspacePath);
+    const autonomousFindings = [];
+
+    if (highRiskFiles.length === 0) {
+        console.log(`${colors.green}[✓] 未发现典型高危业务逻辑模块，跳过自主逻辑探索。${colors.reset}`);
+    } else {
+        console.log(`${colors.blue}[*] 发现以下 ${highRiskFiles.length} 个高危业务逻辑模块，开始自主审计：${colors.reset}`);
+        highRiskFiles.forEach(f => console.log(`  - ${f}`));
+
+        // 异步并发执行模糊探索 (并发限制为 3)
+        const autonomousBatchSize = 3;
+        for (let j = 0; j < highRiskFiles.length; j += autonomousBatchSize) {
+            const batchFiles = highRiskFiles.slice(j, j + autonomousBatchSize);
+            await Promise.all(batchFiles.map(async (filePath) => {
+                console.log(`${colors.blue}[*] [自主探索] 开始审计模块: ${filePath}...${colors.reset}`);
+                
+                const prompt = `
+你是一个资深安全审计专家。我们现在要对项目中的高危业务模块进行【自主逻辑漏洞探索】。
+目标文件路径：${filePath}
+
+请你自主阅读该模块的代码结构、控制流与状态机设计，重点寻找并验证是否存在以下逻辑安全缺陷：
+1. 越权控制 (IDOR / 水平与垂直越权)
+2. 鉴权旁路与条件校验缺失
+3. 关键业务状态篡改（如订单状态、交易金额被任意修改）
+4. 密码重置/找回逻辑缺陷
+5. 竞争条件或防双花逻辑缺陷
+
+你拥有本地阅读和搜索工具（grep_search, view_file, find_callers 等），请自行选择探索方向，回溯关联的上下文。
+如果你确认发现了逻辑安全漏洞，请在回复的结尾输出：
+LOP_FOUND: [漏洞名称] 在 ${filePath} 中发现，成因是 [简短成因描述]
+并提供详细的分析证据链。
+
+如果确认安全，请在回复的结尾输出：
+LOP_SAFE: [简短说明为什么安全]
+`;
+
+                const args = ['--dangerously-skip-permissions', '--prompt', prompt];
+                try {
+                    const stdout = await runAgentCmd(args);
+                    const foundMatch = stdout.match(/LOP_FOUND:\s*([^\r\n]+)/);
+                    const safeMatch = stdout.match(/LOP_SAFE:\s*([^\r\n]+)/);
+
+                    if (foundMatch) {
+                        console.log(`${colors.red}[!] [自主探索] 模块 ${filePath} 判定存在漏洞: ${foundMatch[1].trim()}${colors.reset}`);
+                        autonomousFindings.push({
+                            file_path: filePath,
+                            status: 'REACHABLE',
+                            summary: foundMatch[1].trim(),
+                            evidence: stdout
+                        });
+                    } else if (safeMatch) {
+                        console.log(`${colors.green}[✓] [自主探索] 模块 ${filePath} 判定安全: ${safeMatch[1].trim()}${colors.reset}`);
+                        autonomousFindings.push({
+                            file_path: filePath,
+                            status: 'UNREACHABLE',
+                            summary: safeMatch[1].trim(),
+                            evidence: stdout
+                        });
+                    } else {
+                        console.log(`${colors.yellow}[?] [自主探索] 模块 ${filePath} 判定未决 (未明确输出 LOP 标记)${colors.reset}`);
+                        autonomousFindings.push({
+                            file_path: filePath,
+                            status: 'NEEDS_REVIEW',
+                            summary: '未明确输出 LOP_FOUND 或 LOP_SAFE 标记，需要复核。',
+                            evidence: stdout
+                        });
+                    }
+                } catch (err) {
+                    console.error(`${colors.red}[!] [自主探索] 模块 ${filePath} 审计异常: ${err.message}${colors.reset}`);
+                    autonomousFindings.push({
+                        file_path: filePath,
+                        status: 'NEEDS_REVIEW',
+                        summary: `ERROR: Execution failed: ${err.message}`,
+                        evidence: `ERROR: ${err.message}`
+                    });
+                }
+            }));
+        }
+
+        // 保存自主探索的中间结果
+        const autonomousPath = path.join(outputDir, 'autonomous_logical_findings.json');
+        fs.writeFileSync(autonomousPath, JSON.stringify(autonomousFindings, null, 2), 'utf8');
+        console.log(`${colors.green}[+] 自主逻辑探索审计结束，中间结果已落盘：${autonomousPath}${colors.reset}`);
+    }
+
+    compileReport(finalQueue, reportPath, autonomousFindings);
 }
 
-function compileReport(queue, reportPath) {
+function findHighRiskModules(workspacePath) {
+    const highRiskFiles = [];
+    const keywords = [
+        'auth', 'login', 'session', 'jwt', 'token',
+        'payment', 'pay', 'order', 'cart', 'billing', 'checkout',
+        'admin', 'manage', 'role', 'permission',
+        'user', 'profile', 'account'
+    ];
+    const ignoreDirs = ['node_modules', '.git', '.audit_results', 'scratch', 'target', 'build', 'dist'];
+
+    function walk(dir) {
+        let list;
+        try {
+            list = fs.readdirSync(dir);
+        } catch (e) {
+            return;
+        }
+        list.forEach(file => {
+            const fullPath = path.join(dir, file);
+            let stat;
+            try {
+                stat = fs.statSync(fullPath);
+            } catch (e) {
+                return;
+            }
+            if (stat && stat.isDirectory()) {
+                if (!ignoreDirs.some(ignored => file.includes(ignored))) {
+                    walk(fullPath);
+                }
+            } else {
+                const ext = path.extname(file).toLowerCase();
+                const validExts = ['.java', '.cpp', '.cc', '.c', '.h', '.py', '.go', '.rs', '.js', '.ts', '.cs', '.php', '.rb', '.swift', '.kt', '.scala', '.sh', '.pl', '.pm', '.ps1'];
+                if (validExts.includes(ext)) {
+                    const relativePath = path.relative(workspacePath, fullPath);
+                    const nameLower = file.toLowerCase();
+                    if (keywords.some(kw => nameLower.includes(kw))) {
+                        highRiskFiles.push(relativePath);
+                    }
+                }
+            }
+        });
+    }
+
+    walk(workspacePath);
+    return highRiskFiles.slice(0, 6); // 最多选择前 6 个文件
+}
+
+function compileReport(queue, reportPath, autonomousFindings = []) {
     const reachable = queue.filter(c => c.status === 'REACHABLE');
     const unreachable = queue.filter(c => c.status === 'UNREACHABLE');
     const failed = queue.filter(c => c.status === 'NEEDS_REVIEW');
@@ -242,7 +379,9 @@ function compileReport(queue, reportPath) {
             failed_execution: failed.length,
             coverage_rate: `${coverageRate}%`,
             reachability_rate: `${reachabilityRate}%`,
-            noise_reduction_rate: `${noiseReductionRate}%`
+            noise_reduction_rate: `${noiseReductionRate}%`,
+            autonomous_findings_count: autonomousFindings.length,
+            autonomous_reachable_count: autonomousFindings.filter(f => f.status === 'REACHABLE').length
         },
         findings: queue.map(c => ({
             id: c.id,
@@ -254,6 +393,12 @@ function compileReport(queue, reportPath) {
             sink_content: c.sink_content,
             status: c.status,
             evidence: c.verdict
+        })),
+        autonomous_findings: autonomousFindings.map(f => ({
+            file_path: f.file_path,
+            status: f.status,
+            summary: f.summary,
+            evidence: f.evidence
         }))
     };
 
