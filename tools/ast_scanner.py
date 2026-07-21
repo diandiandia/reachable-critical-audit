@@ -144,7 +144,7 @@ class ASTCoarseScanner:
                 cwe_id = matched_rule.get("cwe_id")
 
                 # Optimization 1: 初筛漏斗过滤优化
-                if cwe_id == "CWE-476":
+                if cwe_id == "CWE-476" and lang == "cpp":
                     try:
                         ptr_name = node.text.decode('utf-8', errors='ignore').lstrip('*').strip()
                         if re.match(r'^[a-zA-Z_][a-zA-Z0-9_\->\.]*$', ptr_name):
@@ -189,7 +189,7 @@ class ASTCoarseScanner:
                     cwe_id = matched_rule.get("cwe_id")
 
                     # Optimization 1: 初筛漏斗过滤优化
-                    if cwe_id == "CWE-476":
+                    if cwe_id == "CWE-476" and lang == "cpp":
                         try:
                             match_ptr = re.search(r'\*([a-zA-Z_][a-zA-Z0-9_\->\.]*)', line)
                             if match_ptr:
