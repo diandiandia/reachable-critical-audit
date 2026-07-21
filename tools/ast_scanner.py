@@ -141,6 +141,23 @@ class ASTCoarseScanner:
                 
                 # 匹配该 S-expression 属于哪一个 CWE
                 matched_rule = self._find_rule_by_ast(lang_rules, query_str)
+                cwe_id = matched_rule.get("cwe_id")
+
+                # Optimization 1: 初筛漏斗过滤优化
+                if cwe_id == "CWE-476":
+                    try:
+                        ptr_name = node.text.decode('utf-8', errors='ignore').lstrip('*').strip()
+                        if re.match(r'^[a-zA-Z_][a-zA-Z0-9_\->\.]*$', ptr_name):
+                            checked = False
+                            for pre_line in lines[max(0, line_no - 6):line_no - 1]:
+                                if re.search(r'\b' + re.escape(ptr_name) + r'\b', pre_line):
+                                    if 'NULL' in pre_line or '== 0' in pre_line or '!= 0' in pre_line or '!' in pre_line or 'if' in pre_line:
+                                        checked = True
+                                        break
+                            if checked:
+                                continue
+                    except Exception:
+                        pass
                 
                 sink_content = line_content.strip()
                 if len(sink_content) > 1000:
@@ -169,6 +186,25 @@ class ASTCoarseScanner:
             for rx, raw_pat in compiled:
                 if rx.search(line):
                     matched_rule = self._find_rule_by_regex(lang_rules, raw_pat)
+                    cwe_id = matched_rule.get("cwe_id")
+
+                    # Optimization 1: 初筛漏斗过滤优化
+                    if cwe_id == "CWE-476":
+                        try:
+                            match_ptr = re.search(r'\*([a-zA-Z_][a-zA-Z0-9_\->\.]*)', line)
+                            if match_ptr:
+                                ptr_name = match_ptr.group(1).strip()
+                                checked = False
+                                for pre_line in lines[max(0, line_idx - 5):line_idx]:
+                                    if re.search(r'\b' + re.escape(ptr_name) + r'\b', pre_line):
+                                        if 'NULL' in pre_line or '== 0' in pre_line or '!= 0' in pre_line or '!' in pre_line or 'if' in pre_line:
+                                            checked = True
+                                            break
+                                if checked:
+                                    continue
+                        except Exception:
+                            pass
+
                     sink_content = line.strip()
                     if len(sink_content) > 1000:
                         sink_content = sink_content[:1000] + "... [TRUNCATED]"

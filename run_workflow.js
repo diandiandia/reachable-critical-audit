@@ -168,6 +168,21 @@ async function executeWorkflow(workspacePath) {
                 queue[index].status = status;
                 queue[index].verdict = stdout;
 
+                // Propagate verdict to identical candidates in the queue (Optimization 2)
+                const identicals = queue.filter(item => 
+                    item.file_path === cand.file_path && 
+                    item.line_number === cand.line_number && 
+                    item.cwe_id === cand.cwe_id && 
+                    item.status === "PENDING"
+                );
+                identicals.forEach(item => {
+                    item.status = status;
+                    item.verdict = `[Propagated from ID: ${cand.id}] ${stdout}`;
+                });
+                if (identicals.length > 0) {
+                    console.log(`${colors.green}[+] [ID: ${cand.id}] 判定结果自动传播至 ${identicals.length} 个相同的候选点。${colors.reset}`);
+                }
+
                 if (status === 'REACHABLE') {
                     console.log(`${colors.red}[!] [ID: ${cand.id}] 判定结果: REACHABLE (确认真实漏洞)${colors.reset}`);
                 } else if (status === 'UNREACHABLE') {
