@@ -1,6 +1,6 @@
 # Reachable Critical Audit Skill -- 详细需求文档 (Requirements Specification)
 
-本文档系统整理了 `reachable-critical-audit` 技能的全部核心功能与非功能性需求，并对所有需求进行了规范编号（REQ-01 至 REQ-12）。
+本文档系统整理了 `reachable-critical-audit` 技能的全部核心功能与非功能性需求，并对所有需求进行了规范编号（REQ-01 至 REQ-13）。
 
 ---
 
@@ -20,6 +20,7 @@
 | **REQ-10** | 审计漏斗量化度量 | P1 (Should Have) | 自动计算并输出规则匹配率、可达漏洞率和静态误报降噪率等量化指标。 |
 | **REQ-11** | 声明式静态配置 (AST & Regex) | P0 (Must Have) | 所有的 Sink/Source 匹配正则、AST S-expressions 及研判约束必须在 JSON 中固化。 |
 | **REQ-12** | 物理文件隔离与输出防污染 | P0 (Must Have) | 审计过程中产生的临时与最终文件，必须保存在工作区的 `.audit_results` 专属目录下，严禁直接写入源码根目录。 |
+| **REQ-13** | 有向自主逻辑漏洞探索 | P1 (Should Have) | 支持自动识别工作区高危业务模块并拉起子智能体使用模糊提示词进行自主逻辑审计。 |
 
 ---
 
@@ -69,3 +70,7 @@
 
 ### REQ-12: 物理文件隔离与输出防污染
 *   **详细描述**：系统在运行期间生成的所有中间件 and 最终审计产物（如 `verify_queue.json`、`reachable_vulnerabilities_report.json` 等）必须在目标工作区创建一个专属的 `.audit_results` 目录下生成并写入，绝对不允许直接写在工作区的根目录下，以防污染和修改被审计项目的源码库。
+
+### REQ-13: 有向自主逻辑漏洞探索
+*   **详细描述**：在第一阶段静态规则审计（Top 10 CWE 点验证）完成后，工作流应能对目标代码库进行扫描，提取出高危业务领域模块（如 `auth`、`payment`、`order`、`admin` 等关联文件），并为每一个模块拉起子智能体，结合模糊提示词（Fuzzy/Exploratory Prompt）对其进行发散的威胁建模与自主代码审计，实现深度逻辑隐患挖掘。
+

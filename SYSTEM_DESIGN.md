@@ -1,6 +1,6 @@
 # Reachable Critical Audit Skill -- 系统设计文档 (System Design)
 
-本文档描述了 reachable-critical-audit 技能的架构设计，并详细说明了如何通过系统设计实现 requirements.md 中定义的每一个需求（REQ-01 至 REQ-12）。
+本文档描述了 reachable-critical-audit 技能的架构设计，并详细说明了如何通过系统设计实现 REQUIREMENTS.md 中定义的每一个需求（REQ-01 至 REQ-13）。
 
 ---
 
@@ -103,3 +103,9 @@ graph TD
 *   **设计实现**：
     *   在工作流启动后，主控脚本自动在被审计的目标工程根目录下创建一个名为 `.audit_results/` 的专属隐藏文件夹。
     *   审计过程中的中间产物 `verify_queue.json` 以及最终的漏洞量化报告 `reachable_vulnerabilities_report.json` 将会被全部限制在此隐藏文件夹内生成和更新，严格保障审计项目的源代码树免遭任何文件写入污染。
+
+### REQ-13: 有向自主逻辑漏洞探索
+*   **设计实现**：
+    *   主控脚本中增加 `findHighRiskModules` 逻辑。在完成前三阶段的确定性审计后，程序会自动利用文件后缀名过滤和核心业务敏感关键词匹配，检索出工作区内属于高危业务领域的源代码文件（如登录、鉴权、支付、管理类模块），并限制扫描规模上限（前 6 个文件）。
+    *   对检索出的每一个模块文件，并行动态拉起 `agy` 漏洞审计子智能体，结合自定义的模糊审计提示词对该文件内的逻辑控制流与状态机设计进行深度的发散型自主威胁建模与审计。
+    *   最后，在报告生成阶段（`compileReport`），将自主逻辑探索得出的漏洞或安全评估结果融合并写入至最终的 `reachable_vulnerabilities_report.json` 的 `autonomous_findings` 板块中。
