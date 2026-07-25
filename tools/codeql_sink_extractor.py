@@ -54,6 +54,31 @@ from typing import Iterable
 
 # CodeQL 各语言 security 库的相对路径候选(按优先级;新版 CodeQL 部分
 # 语言改到了 dataflow 子目录或新 codeql/ 包路径)
+# Rust CWE 文件名模式：Rust 安全查询文件通常以 `.qll` 结尾且在 security 子目录中
+# CodeQL for Rust 仍在演进，CWE 模式基于现有查询名称
+RUST_CWE_PATTERNS: list[tuple[str, str, list[str]]] = [
+    ("CWE-119", "BufferOverflow",
+     ["*buffer*", "*overflow*", "*out_of_bounds*", "*from_raw_parts*"]),
+    ("CWE-416", "UseAfterFree",
+     ["*use_after_free*", "*after_free*", "*uaf*"]),
+    ("CWE-789", "UncontrolledMemoryAllocation",
+     ["*allocation*", "*uncontrolled*size*"]),
+    ("CWE-190", "IntegerOverflow",
+     ["*integer*overflow*", "*arithmetic*"]),
+    ("CWE-78", "CommandInjection",
+     ["*command*injection*", "*exec*"]),
+    ("CWE-22", "PathTraversal",
+     ["*path*traversal*", "*file*"]),
+    ("CWE-362", "RaceCondition",
+     ["*race*", "*data_race*", "*concurrent*", "*send_sync*"]),
+    ("CWE-400", "UncontrolledResource",
+     ["*resource*exhaustion*", "*panic*", "*unbounded*"]),
+    ("CWE-502", "Deserialization",
+     ["*deserialization*", "*deser*"]),
+    ("CWE-1321", "PrototypePollution",
+     ["*prototype*pollut*"]),
+]
+
 LANG_SECURITY_PATHS: dict[str, list[str]] = {
     "cpp": [
         "cpp/ql/lib/semmle/code/cpp/security",
@@ -77,6 +102,9 @@ LANG_SECURITY_PATHS: dict[str, list[str]] = {
         "csharp/ql/lib/semmle/code/csharp/security",
         "csharp/ql/lib/semmle/code/csharp/frameworks/system/security",
     ],
+    "rust": [
+        "rust/ql/lib/codeql/rust/security",
+    ],
     "php": [
         "php/ql/lib/semmle/code/php/security",
         "php/ql/lib/semmle/php/security",
@@ -86,8 +114,13 @@ LANG_SECURITY_PATHS: dict[str, list[str]] = {
         "ruby/ql/lib/semmle/code/ruby/security",
         "ruby/ql/lib/semmle/ruby/security",
     ],
-    # 其余语言(rust/swift/kotlin/scala/shell/perl/powershell)CodeQL
-    # 暂无或库路径变化大,后续版本再补
+    "swift": [
+        "swift/ql/lib/codeql/swift/security",
+    ],
+    "kotlin": [
+        "kotlin/ql/lib/codeql/kotlin/security",
+    ],
+    # shell/perl/powershell 暂无独立 security 目录，用通用 fallback
 }
 
 # CWE 关键字 → (cwe_id, category, filename_patterns)
@@ -217,8 +250,9 @@ def discover_qll_files(security_root: Path) -> list[Path]:
     return sorted(set(files))
 
 
-def match_cwe_for_file(qll_path: Path) -> list[tuple[str, str]]:
-    """根据文件名匹配 CWE,返回 [(cwe_id, category), ...] 列表(可能多个)。"""
+def match_cwe_for_file(qll_path: Path, lang: str = "") -> list[tuple[str, str]]:
+    """根据文件名匹配 CWE,返回 [(cwe_id, category), ...] 列表(可能多个)。
+       lang 参数允许使用语言特定的 CWE 模式表(如 Rust)。"""
     name_lower = qll_path.name.lower()
     results: list[tuple[str, str]] = []
     # 避免 Customizations / Sanitizers / Query / Config 等非 sink 文件
@@ -226,17 +260,15 @@ def match_cwe_for_file(qll_path: Path) -> list[tuple[str, str]]:
     skip_suffixes = ("customizations.qll", "sanitizers.qll", "config.qll",
                      "taintedlocalquery.qll", "query.qll")
     if name_lower.endswith(skip_suffixes):
-        # Query 文件本身往往也含 sink 引用 - 我们仍然扫描,但优先级低
-        # 这里不跳过,让正则提取自然完成
         pass
 
-    for cwe_id, category, patterns in CWE_PATTERNS:
-        for pat in patterns:
-            # fnmatch 风格简化匹配 - 去掉 * 后 substring 匹配
+    patterns = RUST_CWE_PATTERNS if lang == "rust" else CWE_PATTERNS
+    for cwe_id, category, pats in patterns:
+        for pat in pats:
             needle = pat.lower().replace("*", "")
             if needle in name_lower:
                 results.append((cwe_id, category))
-                break  # 一个文件命中一 CWE 即可,避免重复
+                break
     return results
 
 
@@ -311,7 +343,7 @@ def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
         # 按 CWE 聚合 names
         cwe_to_names: dict[str, dict] = {}  # cwe_id -> {"category", "names": [...]}
         for qll in discover_qll_files(sec_root):
-            cwes = match_cwe_for_file(qll)
+                cwes = match_cwe_for_file(qll, lang)
             if not cwes:
                 continue
             names = dedupe(extract_names_from_qll(qll))

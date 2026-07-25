@@ -4018,7 +4018,6 @@
   },
   "codeql_revision": "d1fed84daf8f3abc59cf9453692b98632932d60f",
   "codeql_extraction_notes": "L0 rules auto-extracted by tools/codeql_sink_extractor.py. manual_additions / wrapper_detection / property_check_patterns 段保留手工维护。",
-
   "manual_additions": {
     "_note": "CodeQL 不覆盖但必须纳入的 sink，按语言分组。每条标注来源理由。",
     "cpp": [
@@ -4181,37 +4180,246 @@
           ]
         }
       }
+    ],
+    "rust": [
+      {
+        "cwe_id": "CWE-119",
+        "category": "UnsafeSliceOOB",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL Rust 实验阶段未覆盖; 蓝牙审计发现 from_raw_parts 无验证",
+        "sinks": {
+          "regex": [
+            "slice::from_raw_parts\\s*\\(.*,\\s*\\w+\\s*\\)"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-416",
+        "category": "RcFromRawUAF",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL Rust 未覆盖 Rc::from_raw UAF 模式; 蓝牙 rootcanal 审计发现",
+        "sinks": {
+          "regex": [
+            "Rc::from_raw"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-416",
+        "category": "ManuallyDropUAF",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "ManuallyDrop 包裹 Rc::from_raw 阻止 drop",
+        "sinks": {
+          "regex": [
+            "ManuallyDrop.*Rc::from_raw"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-119",
+        "category": "PtrOffsetOOB",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "裸指针 offset 无边界检查循环; 蓝牙 HID 审计发现",
+        "sinks": {
+          "regex": [
+            "raw\\.offset\\s*\\(\\s*\\w+"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-362",
+        "category": "NonSendTypeAcrossFFI",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "Cell/RefCell/Rc 跨 FFI 边界违反线程安全; 蓝牙 rootcanal 审计发现",
+        "sinks": {
+          "regex": [
+            "unsafe.*extern.*\\n.*Cell<|unsafe.*extern.*\\n.*RefCell<"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-400",
+        "category": "AssertOnExternalData",
+        "type": "PROPERTY_CHECK",
+        "source_reason": "assert! 用外部输入触发 panic/DoS; 蓝牙 HCI 流控审计发现",
+        "verification_logic": "assert! 宏中检查外部可控数据（如网络包字段）时，若攻击者可强制触发则判定为 REACHABLE",
+        "sinks": {
+          "regex": [
+            "\\bassert!\\(.*[Hh]ci|[Pp]acket|[Ii]nput|[Nn]etwork"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-119",
+        "category": "CxxBridgeOOB",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "cxx 桥接层 cb_variant/ptr_to_vec 未验证长度; 蓝牙 topshim SDP 审计发现",
+        "sinks": {
+          "regex": [
+            "cb_variant!.*from_raw_parts",
+            "ptr_to_vec"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-400",
+        "category": "UnwrapOnExternalData",
+        "type": "PROPERTY_CHECK",
+        "source_reason": "对远程数据 .unwrap()/.expect() 导致 DoS",
+        "verification_logic": "检查 .unwrap()/.expect() 调用是否作用于远程可控数据上",
+        "sinks": {
+          "regex": [
+            "\\b(\\w+)\\.unwrap\\(\\)",
+            "\\b(\\w+)\\.expect\\(\""
+          ]
+        }
+      }
     ]
   },
-
   "wrapper_detection": {
     "_note": "R1.5 阶段框架感知扩展用. LLM 按这些模式名扫描项目自定义 wrapper, 产出 .audit_results/extended_sinks.json",
     "cpp": {
-      "allocator_pattern": ["osi_*", "*alloc*", "*calloc*", "*_alloc_*"],
-      "parser_macros": ["STREAM_TO_*", "*_TO_STREAM", "BE_STREAM_TO_*"],
-      "lifecycle": ["*_delete", "*_cleanup", "*_destroy", "delete*", "*::reset", "*::release"],
-      "async_ownership": ["*::Unretained", "base::Unretained", "common::Unretained"]
+      "allocator_pattern": [
+        "osi_*",
+        "*alloc*",
+        "*calloc*",
+        "*_alloc_*"
+      ],
+      "parser_macros": [
+        "STREAM_TO_*",
+        "*_TO_STREAM",
+        "BE_STREAM_TO_*"
+      ],
+      "lifecycle": [
+        "*_delete",
+        "*_cleanup",
+        "*_destroy",
+        "delete*",
+        "*::reset",
+        "*::release"
+      ],
+      "async_ownership": [
+        "*::Unretained",
+        "base::Unretained",
+        "common::Unretained"
+      ]
     },
     "java": {
-      "sql_wrappers": ["*query*", "*Query*", "raw*", "*execSQL*"],
-      "ipc_sinks": ["ContentResolver.*", "Intent.*", "Bundle.*", "Uri.*"],
-      "android_ipc_getter": ["getFilter*", "getExtra*", "getQueryParameter"]
+      "sql_wrappers": [
+        "*query*",
+        "*Query*",
+        "raw*",
+        "*execSQL*"
+      ],
+      "ipc_sinks": [
+        "ContentResolver.*",
+        "Intent.*",
+        "Bundle.*",
+        "Uri.*"
+      ],
+      "android_ipc_getter": [
+        "getFilter*",
+        "getExtra*",
+        "getQueryParameter"
+      ]
     },
     "php": {
-      "db_wrappers": ["DB\\SQL::*", "*::exec", "*::query", "doctrine_*"],
-      "framework_sinks": ["$this->db->*", "$database->*"]
+      "db_wrappers": [
+        "DB\\SQL::*",
+        "*::exec",
+        "*::query",
+        "doctrine_*"
+      ],
+      "framework_sinks": [
+        "$this->db->*",
+        "$database->*"
+      ]
     },
     "python": {
-      "orm_wrappers": ["*.execute", "*.raw", "*.filter", "cursor.*"]
+      "orm_wrappers": [
+        "*.execute",
+        "*.raw",
+        "*.filter",
+        "cursor.*"
+      ]
     },
     "javascript": {
-      "orm_wrappers": ["*.query", "*.execute", "sequelize.*", "knex.*"]
+      "orm_wrappers": [
+        "*.query",
+        "*.execute",
+        "sequelize.*",
+        "knex.*"
+      ]
     },
     "go": {
-      "orm_wrappers": ["db.*", "*.Query", "*.Exec", "gorm.*"]
+      "orm_wrappers": [
+        "db.*",
+        "*.Query",
+        "*.Exec",
+        "gorm.*"
+      ]
+    },
+    "rust": {
+      "unsafe_raw_ptr": [
+        "from_raw_parts",
+        "as_ptr",
+        "as_mut_ptr",
+        "offset",
+        "pointer::offset",
+        "copy_nonoverlapping",
+        "copy_from"
+      ],
+      "unsafe_lifetime": [
+        "std::mem::transmute",
+        "MaybeUninit::assume_init",
+        "Pin::new_unchecked",
+        "ManuallyDrop::new"
+      ],
+      "ffi_bridge": [
+        "Rc::from_raw",
+        "cxx::UniquePtr::from_raw",
+        "Box::from_raw"
+      ],
+      "panic_sources": [
+        "unwrap",
+        "expect",
+        "assert"
+      ],
+      "oob_sinks": [
+        "get_unchecked",
+        "get_unchecked_mut",
+        "set_len"
+      ],
+      "lock_patterns": [
+        "Mutex::lock",
+        "RwLock::read",
+        "RwLock::write",
+        "RefCell::borrow_mut"
+      ],
+      "async_ownership": [
+        "tokio::spawn",
+        "Arc::clone"
+      ]
     }
   },
-
   "property_check_patterns": {
     "_note": "PROPERTY_CHECK 从粗关键字升级为 4 类模式识别 (REQ-05)",
     "patterns": [
@@ -4219,11 +4427,40 @@
         "id": "missing_owner_check",
         "detect": "对资源的写/删/查操作方法体内, 未出现 session 用户 ID 与资源 owner 的相等性比对(==, equals, Objects.equals)",
         "language_hints": {
-          "java": ["session.getActiveUser", "getCallingUid", "enforceCallingOrSelfPermission", "Operator::getId", "equals(getUserId())"],
-          "php": ["$_SESSION", "$this->getUser()->getId()", "auth()->id()"],
-          "cpp": ["::getInstance()", "session_user", "current_uid"],
-          "python": ["current_user.id", "session['user_id']"],
-          "javascript": ["req.user.id", "req.session.userId"]
+          "java": [
+            "session.getActiveUser",
+            "getCallingUid",
+            "enforceCallingOrSelfPermission",
+            "Operator::getId",
+            "equals(getUserId())"
+          ],
+          "php": [
+            "$_SESSION",
+            "$this->getUser()->getId()",
+            "auth()->id()"
+          ],
+          "cpp": [
+            "::getInstance()",
+            "session_user",
+            "current_uid"
+          ],
+          "python": [
+            "current_user.id",
+            "session['user_id']"
+          ],
+          "javascript": [
+            "req.user.id",
+            "req.session.userId"
+          ],
+          "rust": [
+            "unsafe",
+            "from_raw_parts",
+            "Cell",
+            "RefCell",
+            "Rc",
+            "unwrap",
+            "expect"
+          ]
         }
       },
       {
@@ -4235,12 +4472,24 @@
       {
         "id": "exported_no_permission",
         "detect": "AndroidManifest.xml 等 manifest 文件中 exported=true 且无 android:permission",
-        "files": ["AndroidManifest.xml", "AndroidManifest*.xml"]
+        "files": [
+          "AndroidManifest.xml",
+          "AndroidManifest*.xml"
+        ]
       },
       {
         "id": "privilege_boundary_skip",
         "detect": "提权前(setuid 等)的 user-controlled 数据流入提权后执行的指令/文件路径",
-        "sinks": ["setuid", "seteuid", "setgid", "setegid", "setresuid", "setresgid", "capng_*", "prctl"],
+        "sinks": [
+          "setuid",
+          "seteuid",
+          "setgid",
+          "setegid",
+          "setresuid",
+          "setresgid",
+          "capng_*",
+          "prctl"
+        ],
         "verification_logic": "提权后动作参数若仍混入低特权用户可控变量 → REACHABLE; 完全硬编码 → UNREACHABLE"
       }
     ]

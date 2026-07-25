@@ -7,8 +7,26 @@ const { spawn } = require('child_process');
  *
  * v2 角色: 本脚本是 SKILL.md REQ-01/REQ-17 平台兼容层中的 **可选执行路径**。
  *   - Mode A (Antigravity Native): define_subagent/invoke_subagent, 不调用本脚本
- *   - Mode A' (opencode 等):       task 工具, 不调用本脚本
+ *   - Mode A' (opencode 等):       task 工具, 不调用本脚本 ← **opencode 见到这个应立即退出，改用 task 模式**
  *   - Mode B (Antigravity CLI):    本脚本 + agy spawn 编排
+ *
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ opencode / Claude Code 用户在 Mode A' 下不要运行此脚本。请改用以下方式: │
+ * │                                                                          │
+ * │   R1 阶段: python3 tools/ast_scanner.py <workspace> .audit_results/     │
+ * │            → 产出 verify_queue.json (全量候选队列)                      │
+ * │                                                                          │
+ * │   R3 阶段: for batch [0..candidates.length] @ step 4:                   │
+ * │              task(subagent_type="general",                               │
+ * │                   description="vulnerability-verifier: CAND-xxx",        │
+ * │                   prompt=<按照附录 A.1 生成的任务书>)                    │
+ * │            每批完成后: fs.writeFileSync("verify_queue.json", ...)        │
+ * │            Assert: candidates.every(c => c.status !== "PENDING")         │
+ * │                                                                          │
+ * │   R4 阶段: task(...) 并发深钻 6 类假说                                    │
+ * │   最终: 汇总 verify_queue.json + r4_findings → 生成报告                  │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ *
  * Skill 在 R0 平台探测阶段会运行 `node run_workflow.js --check-availability`:
  *   - agy 可用 → 进入 Mode B, 本脚本接管 R1/R3/R4 编排
  *   - agy 不可用 (ENOENT) → 返回结构化 {mode:"AGENT_NATIVE_FALLBACK",...},
@@ -19,11 +37,13 @@ const { spawn } = require('child_process');
  * 2. 按照每次启动 3-5 个（默认 4 个）子智能体的并发方式，进行批处理循环研判。
  * 3. 使用 child_process.spawn 异步调度 CLI 会话，彻底避免 Shell 字符注入漏洞。
  * 4. 每批次运行结束后【实时落盘】，断点续传，最终进行 Assert 完整性拦截校验。
+ * 5. 完成后 compileReport 生成 JSON + Markdown 报告。
  *
  * v2 修订要点:
  * - runAgentCmd 的 child.on('error') 增加 ENOENT 结构化降级返回
  * - 新增 --check-availability 子命令,供 R0 平台探测调用
  * - 顶部说明文档化为"可选执行路径",避免与 Agent-Native 模式混用
+ * - 新增 opencode Mode A' 工作流注释（此脚本不执行,仅供文档参考）
  */
 
 const colors = {

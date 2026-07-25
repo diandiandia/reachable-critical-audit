@@ -35,6 +35,8 @@ Skill 必须在 R0 阶段探测平台能力，选择执行模式并写入 `.audi
 
 > 在 opencode 等 fallback 平台上，SKILL.md 后文中所有出现的 `define_subagent`/`invoke_subagent` 调用描述在 Mode A' 下等价于 `task(subagent_type="general", description="<role>: <id>", prompt=<任务书>)`；在 Mode A'' 下由主 Agent 在本地会话中直接按任务书要求读取代码并更新 `verify_queue.json`。详见附录 A 任务书模板。
 
+> ⚠️ **AGENT 强制自查**：执行本 skill 的 Agent 必须在 R0 阶段确认已完整阅读以下各阶段规则。**禁止跳过 R0 工具自检**、**禁止用手工 grep 替代 R1 ast_scanner.py 全量扫描**、**禁止不创建 verify_queue.json 直接分析**、**禁止在 R4 启动前不执行 R3 assertion**。pre-v2 两次审计（tirreno、Android Bluetooth）的根因就是 Agent 跳过了这些步骤——用"捡重要的看"替代了系统性验证，导致候选不全、降噪率虚高、关键 sink 漏审。**本 v2 的 R0/R1/R1.5/R3/R4 五阶段漏斗设计是强制串行的，不得重排或跳过任何阶段。**
+
 
 ---
 
@@ -87,6 +89,24 @@ R1 完成后必须执行（**强制触发条件**：R1 在项目主体语言上�
 ## 🔄 R3：双向数据流追踪与可达约束验证
 
 `verify_queue.json` 中所有 `status=PENDING` 候选分批并发验证。每次 3~5 个子智能体（按平台兼容层选定的模式），单批完成立即落盘。
+
+**Mode A' (opencode `task` 工具) 分批验证示例**：
+```
+1. 读取 verify_queue.json，筛选 status="PENDING" 的候选列表
+2. 每批取 3~4 个候选，并发启动 task:
+   task(subagent_type="general",
+        description="vulnerability-verifier: CAND-001",
+        prompt=生成的任务书)
+   task(subagent_type="general",
+        description="vulnerability-verifier: CAND-002",
+        prompt=生成的任务书)
+   ...
+3. 每批所有 task 返回后，收集 verdict，更新 verify_queue.json 对应条目
+   (status=REACHABLE|UNREACHABLE|NEEDS_REVIEW, verdict, call_chain, 等)
+4. 立即写入磁盘（实时落盘）
+5. 循环下一批，直到所有候选 status != PENDING
+6. Assert: 无 PENDING 残留才能进 R4
+```
 
 ### 第一步：自底向上（Bottom-Up）追踪调用链
 对每个候选 sink，使用 `grep` / `Grep` 工具反向查找调用者（Callers）：
