@@ -381,11 +381,12 @@ def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
 
 
 def merge_into_profiles(
-    profiles_path: Path, codeql_rev: str, extracted: dict
+    profiles_path: Path, codeql_rev: str, extracted: dict, replace: bool = False
 ) -> None:
     """Merge extracted rules into security_profiles.json.
 
-    Note: 参数顺序按调用点习惯 (path, rev, extracted) 排列,便于 main() 直接传。
+    replace=True 时: 丢弃手工 rules，完全使用 CodeQL 提取结果 + manual_additions。
+    replace=False 时: 保守合并，仅补充新 CWE。
     """
     profile: dict = {}
     if profiles_path.exists():
@@ -404,18 +405,23 @@ def merge_into_profiles(
     )
 
     rules = profile.setdefault("rules", {})
-    for lang, extracted_entries in extracted.items():
-        # 策略:保留原 rules.<lang> 段已有的所有 CWE,只补充 CodeQL 提取到的
-        # 新 CWE(原段没有的)。原段每个 CWE 的 sinks 不被覆盖,因为手写规则
-        # 通常比 CodeQL 提取的正则更精炼(含 ast_patterns)。
-        # CodeQL 提取到的 CWE 若原段已有,跳过;若原段没有,追加。
-        existing_cwes = {e.get("cwe_id") for e in rules.get(lang, [])}
-        for entry in extracted_entries:
-            if entry["cwe_id"] not in existing_cwes:
-                rules.setdefault(lang, []).append(entry)
-                existing_cwes.add(entry["cwe_id"])
 
-    # 同时合并 manual_additions 段(若用户已手工填的 CWE 也不在 CodeQL 提取中)
+    if replace:
+        # 纯 CodeQL 模式: 完全替换 rules，仅保留 CodeQL 提取 + manual_additions
+        rules.clear()
+        for lang, entries in extracted.items():
+            if entries:
+                rules[lang] = entries
+    else:
+        # 保守模式: 仅补充新 CWE
+        for lang, extracted_entries in extracted.items():
+            existing_cwes = {e.get("cwe_id") for e in rules.get(lang, [])}
+            for entry in extracted_entries:
+                if entry["cwe_id"] not in existing_cwes:
+                    rules.setdefault(lang, []).append(entry)
+                    existing_cwes.add(entry["cwe_id"])
+
+    # 合并 manual_additions 段 (CodeQL 不覆盖但必须纳入的 sink)
     for lang, manual_entries in profile.get("manual_additions", {}).items():
         if lang.startswith("_") or not isinstance(manual_entries, list):
             continue
@@ -460,6 +466,10 @@ def main() -> int:
         "--dry-run", action="store_true",
         help="Print extracted rules to stdout, do not write JSON",
     )
+    parser.add_argument(
+        "--replace-rules", action="store_true",
+        help="Replace all existing rules with CodeQL extraction (default: conservative merge)",
+    )
     args = parser.parse_args()
 
     if args.codeql_path:
@@ -487,7 +497,7 @@ def main() -> int:
         print(json.dumps(extracted, indent=2, ensure_ascii=False))
         return 0
 
-    merge_into_profiles(Path(args.output), rev, extracted)
+    merge_into_profiles(Path(args.output), rev, extracted, replace=args.replace_rules)
 
     # 清理临时 clone(用户传 --codeql-path 时不删)
     if not args.codeql_path:
