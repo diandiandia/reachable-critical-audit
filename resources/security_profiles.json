@@ -1,5 +1,5 @@
 {
-  "schema_version": "5.0",
+  "schema_version": "6.0",
   "comment": "从 GitHub CodeQL 官方安全模型中清洗提炼出的 Top 15 语言 Top 10 漏洞 Sink 函数库。涵盖 Python, C++, Java, JavaScript, C#, Go, Rust, PHP, Ruby, Swift, Kotlin, Scala, Shell, Perl, PowerShell。",
   "rules": {
     "java": [
@@ -582,6 +582,21 @@
           ]
         },
         "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。"
+      },
+      {
+        "cwe_id": "CWE-787",
+        "category": "BufferWrite",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "extracted via codeql_sink_extractor.py",
+        "sinks": {
+          "regex": [
+            "realpath\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
       }
     ],
     "go": [
@@ -3998,6 +4013,235 @@
           ]
         },
         "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。"
+      }
+    ]
+  },
+  "codeql_revision": "d1fed84daf8f3abc59cf9453692b98632932d60f",
+  "codeql_extraction_notes": "L0 rules auto-extracted by tools/codeql_sink_extractor.py. manual_additions / wrapper_detection / property_check_patterns 段保留手工维护。",
+
+  "manual_additions": {
+    "_note": "CodeQL 不覆盖但必须纳入的 sink，按语言分组。每条标注来源理由。",
+    "cpp": [
+      {
+        "cwe_id": "CWE-789",
+        "category": "UncontrolledMemoryAllocation",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL C++ 库无 CWE-789 模型; Android Bluetooth 自有 allocator 必须 taint",
+        "sinks": {
+          "regex": [
+            "\\bosi_calloc\\s*\\(",
+            "\\bosi_malloc\\s*\\(",
+            "\\bosi_realloc\\s*\\(",
+            "\\bosi_free\\s*\\(",
+            "\\bcalloc\\s*\\(.*sizeof",
+            "\\bmalloc\\s*\\(.*sizeof",
+            "\\brealloc\\s*\\(.*sizeof",
+            "\\bnew\\s+\\w+\\["
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": [
+            "STREAM_TO_UINT8",
+            "STREAM_TO_UINT16",
+            "STREAM_TO_UINT32",
+            "UINT8_TO_STREAM",
+            "UINT16_TO_STREAM",
+            "UINT32_TO_STREAM",
+            "BE_STREAM_TO_UINT8",
+            "BE_STREAM_TO_UINT16",
+            "BE_STREAM_TO_UINT32",
+            "BE_UINT8_TO_STREAM",
+            "BE_UINT16_TO_STREAM",
+            "BE_UINT32_TO_STREAM",
+            "STREAM_TO_ARRAY",
+            "STREAM_SKIP_UINT8",
+            "STREAM_SKIP_UINT16",
+            "STREAM_SKIP_UINT32",
+            "PKT_LEN",
+            "p_buf->len",
+            "p_pkt->len",
+            "p_msg->len"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-416",
+        "category": "UseAfterFreeExtended",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL C++ flowafterfree 只覆盖 free(); C++ 真实 UAF 在 delete/reset/Unretained; Android BT alarm 生命周期需补",
+        "sinks": {
+          "regex": [
+            "\\bdelete\\s+",
+            "\\bdelete\\[\\]",
+            "\\.reset\\(\\s*\\)",
+            "\\.release\\(\\s*\\)",
+            "base::Unretained",
+            "common::Unretained",
+            "\\balarm_free\\s*\\(",
+            "\\balarm_cancel\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": [
+            "base::Unretained\\(this\\)",
+            "common::Unretained\\(this\\)",
+            "do_in_jni_thread",
+            "do_in_main_thread",
+            "repeating_alarm",
+            "Schedule\\(.*Unretained"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-125",
+        "category": "BufferRead",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL C++ BufferAccess 只覆盖写; 蓝牙栈 STREAM_TO_* 读越界是 CVE 高发类",
+        "sinks": {
+          "regex": [
+            "STREAM_TO_UINT8",
+            "STREAM_TO_UINT16",
+            "STREAM_TO_UINT32",
+            "BE_STREAM_TO_UINT8",
+            "BE_STREAM_TO_UINT16",
+            "BE_STREAM_TO_UINT32",
+            "STREAM_TO_ARRAY",
+            "\\*p\\s*\\+\\+",
+            "p\\s*\\+=\\s*\\d"
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": [
+            "p_pkt_end",
+            "p_cmd_end",
+            "p_reply_end",
+            "p_buf->len",
+            "p_pkt->len"
+          ]
+        }
+      }
+    ],
+    "java": [
+      {
+        "cwe_id": "CWE-89",
+        "category": "AndroidSqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL Java SQL 模型只覆盖 JDBC/Hibernate/MyBatis; Android ContentProvider/SQLite 不识别; 直接对应 Bluetooth MAP SQL 注入漏报",
+        "sinks": {
+          "regex": [
+            "ContentResolver\\.query\\s*\\(",
+            "BluetoothMethodProxy\\.contentResolverQuery\\s*\\(",
+            "SQLiteDatabase\\.query\\s*\\(",
+            "SQLiteDatabase\\.rawQuery\\s*\\(",
+            "SQLiteDatabase\\.execSQL\\s*\\(",
+            "SQLiteQueryBuilder\\.query\\s*\\(",
+            "SQLiteQueryBuilder\\.buildQueryString\\s*\\(",
+            "ContentResolver\\.notifyChange\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": [
+            "BluetoothMapAppParams",
+            "getFilterOriginator",
+            "getFilterRecipient",
+            "Intent\\.getExtras",
+            "Intent\\.getStringExtra",
+            "Bundle\\.getString",
+            "Uri\\.getQueryParameter",
+            "BluetoothMapAppParams"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-20",
+        "category": "CrossBoundaryTrustViolation",
+        "type": "PROPERTY_CHECK",
+        "source_reason": "新模型: 跨进程信任边界破坏. Android Bluetooth MAP 把拼字符串 selection 透传给外部 Provider 时 selectionArgs=null",
+        "sinks": {
+          "regex": [
+            "ContentResolver\\.query\\s*\\(",
+            "ContentResolver\\.notifyChange\\s*\\(",
+            "Binder\\.transact\\s*\\(",
+            "broadcastIntent",
+            "sendBroadcast"
+          ],
+          "ast_patterns": []
+        },
+        "verification_logic": "判定规则: 调用 ContentResolver.query/Binder.transact/Intent extras 时, 若 free-text 参数(如 selection)含字符串拼接 AND 参数化字段(如 selectionArgs)缺省为 null, 判定 REACHABLE_ACROSS_BOUNDARY; 若强制参数化(? 占位 + 绑定), 阻断 UNREACHABLE.",
+        "sources": {
+          "regex": [
+            "selection",
+            "where",
+            "command",
+            "args"
+          ]
+        }
+      }
+    ]
+  },
+
+  "wrapper_detection": {
+    "_note": "R1.5 阶段框架感知扩展用. LLM 按这些模式名扫描项目自定义 wrapper, 产出 .audit_results/extended_sinks.json",
+    "cpp": {
+      "allocator_pattern": ["osi_*", "*alloc*", "*calloc*", "*_alloc_*"],
+      "parser_macros": ["STREAM_TO_*", "*_TO_STREAM", "BE_STREAM_TO_*"],
+      "lifecycle": ["*_delete", "*_cleanup", "*_destroy", "delete*", "*::reset", "*::release"],
+      "async_ownership": ["*::Unretained", "base::Unretained", "common::Unretained"]
+    },
+    "java": {
+      "sql_wrappers": ["*query*", "*Query*", "raw*", "*execSQL*"],
+      "ipc_sinks": ["ContentResolver.*", "Intent.*", "Bundle.*", "Uri.*"],
+      "android_ipc_getter": ["getFilter*", "getExtra*", "getQueryParameter"]
+    },
+    "php": {
+      "db_wrappers": ["DB\\SQL::*", "*::exec", "*::query", "doctrine_*"],
+      "framework_sinks": ["$this->db->*", "$database->*"]
+    },
+    "python": {
+      "orm_wrappers": ["*.execute", "*.raw", "*.filter", "cursor.*"]
+    },
+    "javascript": {
+      "orm_wrappers": ["*.query", "*.execute", "sequelize.*", "knex.*"]
+    },
+    "go": {
+      "orm_wrappers": ["db.*", "*.Query", "*.Exec", "gorm.*"]
+    }
+  },
+
+  "property_check_patterns": {
+    "_note": "PROPERTY_CHECK 从粗关键字升级为 4 类模式识别 (REQ-05)",
+    "patterns": [
+      {
+        "id": "missing_owner_check",
+        "detect": "对资源的写/删/查操作方法体内, 未出现 session 用户 ID 与资源 owner 的相等性比对(==, equals, Objects.equals)",
+        "language_hints": {
+          "java": ["session.getActiveUser", "getCallingUid", "enforceCallingOrSelfPermission", "Operator::getId", "equals(getUserId())"],
+          "php": ["$_SESSION", "$this->getUser()->getId()", "auth()->id()"],
+          "cpp": ["::getInstance()", "session_user", "current_uid"],
+          "python": ["current_user.id", "session['user_id']"],
+          "javascript": ["req.user.id", "req.session.userId"]
+        }
+      },
+      {
+        "id": "cross_boundary_trust_violation",
+        "detect": "外部输入拼字符串后作为 selection/command 等自由文本参数传入跨进程/跨 DSO API, 且对应 API 缺省参数化字段为 null",
+        "signature": "selection=拼字符串 AND selectionArgs=null/absent AND 跨进程调用",
+        "verification_logic": "调用链到达 ContentResolver.query/Binder.transact/Intent extras 等边界 API 时: 自由文本参数含外部输入拼接 OR 参数化字段缺省为 null → REACHABLE_ACROSS_BOUNDARY; 强制参数化(? 占位 + 绑定) → UNREACHABLE"
+      },
+      {
+        "id": "exported_no_permission",
+        "detect": "AndroidManifest.xml 等 manifest 文件中 exported=true 且无 android:permission",
+        "files": ["AndroidManifest.xml", "AndroidManifest*.xml"]
+      },
+      {
+        "id": "privilege_boundary_skip",
+        "detect": "提权前(setuid 等)的 user-controlled 数据流入提权后执行的指令/文件路径",
+        "sinks": ["setuid", "seteuid", "setgid", "setegid", "setresuid", "setresgid", "capng_*", "prctl"],
+        "verification_logic": "提权后动作参数若仍混入低特权用户可控变量 → REACHABLE; 完全硬编码 → UNREACHABLE"
       }
     ]
   }

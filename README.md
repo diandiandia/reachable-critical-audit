@@ -1,6 +1,8 @@
-# Reachable Critical Audit System (可达性严重漏洞审计系统)
+# Reachable Critical Audit System v2 (可达性严重漏洞审计系统)
 
-这是一个专为 Google Antigravity 设计的自定义 Skill 项目。它旨在解决传统静态代码分析工具（SAST）中**噪音大、误报高、需要繁琐配置 API Key** 的痛点。
+这是一个面向 **opencode** 与 **Antigravity** 双平台的 Skill。它旨在解决传统静态代码分析工具（SAST）中**噪音大、误报高、需要繁琐配置 API Key** 的痛点。
+
+v2 相对 pre-v2 修订:五阶段漏斗(R0+R1+R1.5+R3+R4) + 双平台兼容层 + CodeQL 双源规则库 + 跨进程 sink 终结 + verify_queue 状态机。修订动机详见 [REQUIREMENTS.md](REQUIREMENTS.md) 末尾的修订对照表。
 
 ---
 
@@ -9,46 +11,135 @@
 ```
 reachable-critical-audit/
 ├── README.md               # 项目自述文件
-├── REQUIREMENTS.md         # 详细需求规格书 (REQ-01 至 REQ-10)
-├── SYSTEM_DESIGN.md       # 系统架构与实现映射设计文档
-├── SKILL.md                # 技能主入口（Agent 行为规范指南）
-└── resources/
-    └── security_profiles.json  # 固化的 Top 15 语言 Top 10 漏洞规则库
+├── REQUIREMENTS.md         # 详细需求规格书 (REQ-01 至 REQ-20)
+├── SYSTEM_DESIGN.md        # 系统架构与实现映射设计文档
+├── SKILL.md                # 技能主入口(Agent 行为规范指南)
+├── run_workflow.js         # Mode B 可选执行路径(Antigravity CLI agy 编排)
+├── resources/
+│   └── security_profiles.json  # 规则库:CodeQL L0 + manual_additions + wrapper_detection + property_check_patterns
+└── tools/
+    ├── ast_scanner.py          # R0 强制工具:tree-sitter AST 校验
+    └── codeql_sink_extractor.py  # REQ-20:CodeQL qll → security_profiles.json 清洗脚本
 ```
 
 ---
 
 ## 🌟 核心特色 (Core Features)
 
-1. **原生零 Key 自治 (Zero-Key Autonomy)**：
-   直接依托于 Antigravity 平台的原生 Agent 运行，利用系统内置的大模型能力，无需开发人员申请和配置任何第三方 `API_KEY`。
-2. **Top 15 语言原生覆盖**：
-   通过 `security_profiles.json` 固化了 Python、C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell 共 15 种开发语言的匹配正则。
-3. **Top 10 严重漏洞聚焦 (Zero Noise)**：
-   坚决剔除任何格式规范、变量命名、非安全场景弱随机数等垃圾报警。只关注 RCE、SQLi、SSRF、逻辑越权、内存越界、UAF 和特权提升等直接对系统产生实质危害的缺陷。
-4. **自底向上可达性验证**：
-   追踪数据流向，检测调用链上传递的参数是否被强类型转换或过滤拦截。只有 100% 能被外部入口控制的 Sink 才会报告为漏洞。
-5. **未预设语言的 Fallback 机制**：
-   若项目包含非 15 种预设语言（如 Erlang），Agent 自动通过内置知识库动态合成该语言的 Top 10 规则库并无缝执行数据流追踪，确保 100% 语言覆盖率。
-6. **科学的可量化指标**：
-   审计结束后，自动计算并输出规则匹配率、可达率、以及静态降噪率。
+1. **双平台原生兼容 (Zero-Key Autonomy)**：
+   - **Mode A (Antigravity)**:`define_subagent`/`invoke_subagent` 编排
+   - **Mode A' (opencode 等)**:`task` 工具降级
+   - **Mode B (Antigravity CLI)**:`run_workflow.js` + `agy` 可选
+   - 三模式自动探测,行为一致。完全使用 Agent 自身的 LLM 能力与本地工具，无需配置任何第三方大模型 API Key。
+2. **五阶段漏斗模型 (Five-Stage Funnel)**：
+   - R0 工具自检 + 平台探测 + 目录守卫
+   - R1 静态规则扫描(L0,CodeQL 清洗)
+   - **R1.5 框架感知扩展(L1,项目 wrapper 自识别)** ← 修复 pre-v2 漏报根因
+   - R3 双向回溯验证 + verify_queue 状态机
+   - R4 业务逻辑深钻(固化 6 类假说)
+3. **Top 15 语言原生覆盖**：
+   Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell。超出 15 种语言的走 L2 fallback 生成 `extended_profile.json`。
+4. **CodeQL 双源规则库**：
+   - L0 sink 来自 [github/codeql](https://github.com/github/codeql) 官方 qll 模型自动清洗(由 `tools/codeql_sink_extractor.py` 完成,可重现)
+   - L1 wrapper 由 R1.5 阶段动态识别项目自有 sink wrapper(如 Android Bluetooth 的 `osi_*alloc`、`STREAM_TO_UINT16` 宏、Android `ContentResolver.query`)
+   - 手工补丁段(`manual_additions`)覆盖 CodeQL 不识别的 Android/框架特定 sink
+5. **跨进程 sink 终结 (REQ-19)**：
+   调用链到达 IPC/DSO/Provider 边界时,边界即 sink,不要求在当前仓库内闭环追溯外部实现。修复 pre-v2 中 Android Bluetooth MAP SQL 注入因 sink 在外部 Provider 而漏报的问题。
+6. **verify_queue 状态机 (REQ-09)**：
+   候选清单必须落盘 `.audit_results/verify_queue.json`,状态机 `PENDING→VERIFIED→{REACHABLE|UNREACHABLE|NEEDS_REVIEW}`,断点续传 + Assert 兜底。`NEEDS_REVIEW` 不允许静默丢弃。
+7. **科学的可量化指标 (L0/L1/L2 区分)**：
+   Rule Coverage Rate / Reachability Rate / Noise Reduction Rate 三率 + **Sink Discovery Rate**(L0 召回能力)+ **False Negative Risk**(L1+R4 REACHABLE 占比,量化盲区)。
+8. **Top 10 严重漏洞聚焦 (Zero Noise)**：
+   坚决剔除代码规范、命名、弱随机数等垃圾报警。只关注 RCE、SQLi、SSRF、逻辑越权、内存越界(OOB read/write)、UAF、未控内存分配(CWE-789)、特权提升等直接对系统产生实质危害的缺陷。
+9. **固化 6 类业务逻辑假说 (REQ-15)**：
+   R4 阶段必选 6 类假说:CWE-789 / CWE-125-787 / CWE-416-UAF / 跨进程信任边界破坏 / 导出无权 / 越权-多租户。每类三选一结论(`confirmed` / `reviewed_clean` / `not_applicable`),禁止默默跳过。
 
 ---
 
-## 🚀 如何在 Antigravity 中运行本技能
+## 🚀 如何安装本技能
 
-### 方式 1：工作区加载（本地项目）
+### 方式 1:工作区加载（本地项目）
 将本目录移动或创建到您开发项目的 `.agents/skills/` 下：
 ```bash
-cp -r /root/reachable-critical-audit <您的开发项目目录>/.agents/skills/
+cp -r /root/reachable-critical-audit <您的开发项目目录>/.agents/skills/reachable-critical-audit
 ```
-在 Antigravity 聊天框中输入：
-> *“请使用 `reachable-critical-audit` 技能，帮我审计这个项目，只报告能从外部输入触发的可达严重漏洞。”*
 
-### 方式 2：全局加载（所有项目）
-将本目录放置于您的全局配置路径：
+### 方式 2:opencode 全局加载（所有项目）
+opencode 外部 skill 自动加载路径(无需额外配置):
+```bash
+# 任一即可,~/.agents/skills/ 是 opencode 默认扫描路径之一
+cp -r /root/reachable-critical-audit ~/.agents/skills/reachable-critical-audit
+# 或显式配置
+mkdir -p ~/.config/opencode/skills/
+cp -r /root/reachable-critical-audit ~/.config/opencode/skills/reachable-critical-audit
+```
+
+### 方式 3:Antigravity 全局加载（所有项目）
 ```bash
 mkdir -p ~/.gemini/config/skills/
-cp -r /root/reachable-critical-audit ~/.gemini/config/skills/
+cp -r /root/reachable-critical-audit ~/.gemini/config/skills/reachable-critical-audit
 ```
-Agent 在所有关联工作区都可以随时加载并调用该技能。
+
+加载后,在聊天框中输入:
+> *“请使用 `reachable-critical-audit` 技能，帮我审计这个项目，只报告能从外部输入触发的可达严重漏洞。”*
+
+Agent 会自动执行 R0 平台探测选择执行模式(opencode 上自动走 `task` 工具,Antigravity 上优先 `define_subagent`,`agy` 可用时可选 Mode B)。
+
+---
+
+## 🔧 规则库维护（开发者）
+
+`resources/security_profiles.json` 的 L0 段由 CodeQL 自动清洗产出。每次 CodeQL 主分支更新后,运行:
+
+```bash
+# 重新清洗最新 CodeQL main HEAD (不可重现,仅一次性刷新)
+python3 tools/codeql_sink_extractor.py --output resources/security_profiles.json
+
+# 推荐:固定 CodeQL tag 以保证可重现
+python3 tools/codeql_sink_extractor.py --codeql-tag codeql-bundle-v2.18.0 \
+    --output resources/security_profiles.json
+
+# 重用本地已克隆的 CodeQL 副本
+python3 tools/codeql_sink_extractor.py --codeql-path /path/to/codeql \
+    --output resources/security_profiles.json
+
+# Dry-run: 仅打印提取结果到 stdout,不写 JSON
+python3 tools/codeql_sink_extractor.py --dry-run
+```
+
+清洗流程:
+1. 克隆固定 tag 的 CodeQL 仓库
+2. 自动扫描各语言 `ql/lib/semmle/<lang>/security/` 目录及 `dataflow/` 子目录
+3. 按 CWE 关键字匹配文件名(`*sql*injection*` / `*uncontrolled*allocation*` / `*flow*after*free*` 等)
+4. 用 `hasGlobalName("xxx")` / `hasName([...])` / `getMethod("xxx")` 等正则提取 sink 函数名
+5. 写入 `rules.<lang>` 段,记录 `codeql_revision` 字段
+6. 保留 `manual_additions` / `wrapper_detection` / `property_check_patterns` 段不动(手工维护)
+
+手工补丁段(`manual_additions`)用于覆盖 CodeQL 不识别的项目特定 sink,每条必须标注 `source_reason`。
+
+---
+
+## 📋 需求与设计文档
+
+- [REQUIREMENTS.md](REQUIREMENTS.md):REQ-01 至 REQ-20 详细需求规约,含修订前后对照表
+- [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md):五阶段漏斗模型 + 平台兼容层 + CodeQL 双源规则库 + REQ-01~20 完整映射
+- [SKILL.md](SKILL.md):Agent 行为规范主入口,含任务书模板附录
+
+---
+
+## 🧪 已审计项目
+
+v2 修订动机来自以下两次真实审计暴露的盲区:
+
+| 项目 | 版本 | pre-v2 结果 | 漏报问题 | v2 修复 |
+|---|---|---|---|---|
+| [tirreno](https://github.com/tirrenotechnologies/tirreno) | v0.10.0 | 4 REACHABLE (install 重装链) | install 链发现完整,无漏报 | 基线项目 |
+| [Android Bluetooth (Fluoride)](https://github.com/AospPackages/Bluetooth) | main | 7 REACHABLE | **漏报 MAP SQL 注入 + AVRCP heap DoS** | R1.5 + manual_additions + 跨边界 sink 终结 + 固化假说 |
+
+---
+
+## About
+
+reachable-critical-audit 是面向 Agent 的可达性严重漏洞审计 Skill。基于 CodeQL 官方规则库 + 项目 wrapper 自识别 + 跨进程边界感知,实现"外部可控输入 → 高危 Sink(含跨进程边界)"的真实可达性验证。
+
+License: 同宿主项目。

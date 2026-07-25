@@ -116,11 +116,59 @@ class ASTCoarseScanner:
                     line_candidates = self._scan_via_regex(content, regex_patterns, rel_path, lang, rules[lang])
                     candidates.extend(line_candidates)
 
-        # 编号并输出
+                # 3. 扫描 property_check_patterns (REQ-05)
+                prop_patterns_raw = self.profile.get("property_check_patterns", [])
+                prop_patterns = prop_patterns_raw.get("patterns", []) if isinstance(prop_patterns_raw, dict) else prop_patterns_raw
+                if prop_patterns:
+                    prop_candidates = self._scan_property_checks(content, prop_patterns, rel_path, lang)
+                    candidates.extend(prop_candidates)
+
+        # 编号并规范化 Schema 输出 (REQ-02, REQ-09)
         for idx, cand in enumerate(candidates, 1):
-            cand["id"] = idx
-            cand["status"] = "PENDING"
+            cand["id"] = f"CAND-{idx:03d}"
+            cand["origin"] = cand.get("origin", "L0")
+            cand["source_file"] = cand.get("file_path", "")
+            cand["source_line"] = cand.get("line_number", 0)
+            cand["sink_type"] = cand.get("cwe_id", "Unknown")
+            if "status" not in cand or not cand["status"]:
+                cand["status"] = "PENDING"
             cand["verdict"] = None
+            cand["reachability_type"] = None
+            cand["blocking_point"] = None
+        return candidates
+
+    def _scan_property_checks(self, content, prop_patterns, file_path, lang):
+        candidates = []
+        lines = content.splitlines()
+        for idx, line in enumerate(lines):
+            for prop in prop_patterns:
+                match_languages = prop.get("languages", [])
+                if match_languages and lang not in match_languages:
+                    continue
+                patterns = prop.get("detect_regex", [])
+                for pat in patterns:
+                    try:
+                        if re.search(pat, line):
+                            sink_content = line.strip()
+                            if len(sink_content) > 1000:
+                                sink_content = sink_content[:1000] + "... [TRUNCATED]"
+                            candidates.append({
+                                "language": lang,
+                                "cwe_id": prop.get("cwe_id", "CWE-862"),
+                                "category": prop.get("pattern_id", "PROPERTY_CHECK"),
+                                "type": "PROPERTY_CHECK",
+                                "file_path": file_path,
+                                "line_number": idx + 1,
+                                "sink_content": sink_content,
+                                "origin": "L0",
+                                "status": "PENDING",
+                                "sources_regex": [],
+                                "reachability_constraints": prop.get("description", ""),
+                                "verification_logic": prop.get("verification_guidance", "")
+                            })
+                            break
+                    except Exception:
+                        pass
         return candidates
 
     def _scan_via_tree_sitter(self, content, lang, ast_queries, file_path, lang_rules):
@@ -171,6 +219,8 @@ class ASTCoarseScanner:
                     "file_path": file_path,
                     "line_number": line_no,
                     "sink_content": sink_content,
+                    "origin": "L0",
+                    "status": "PENDING",
                     "sources_regex": matched_rule.get("sources", {}).get("regex", []),
                     "reachability_constraints": matched_rule.get("reachability_constraints", ""),
                     "verification_logic": matched_rule.get("verification_logic", "")
@@ -209,6 +259,9 @@ class ASTCoarseScanner:
                     if len(sink_content) > 1000:
                         sink_content = sink_content[:1000] + "... [TRUNCATED]"
 
+                    # REQ-03: 正则降级扫描产生的候选点标记 ast_verified=False，若无 AST 精确校验支撑则降级为 NEEDS_REVIEW 初始候选
+                    status = "NEEDS_REVIEW" if (HAS_TREE_SITTER and matched_rule.get("sinks", {}).get("ast_patterns")) else "PENDING"
+
                     candidates.append({
                         "language": lang,
                         "cwe_id": matched_rule["cwe_id"],
@@ -217,6 +270,8 @@ class ASTCoarseScanner:
                         "file_path": file_path,
                         "line_number": line_idx + 1,
                         "sink_content": sink_content,
+                        "origin": "L0",
+                        "status": status,
                         "sources_regex": matched_rule.get("sources", {}).get("regex", []),
                         "reachability_constraints": matched_rule.get("reachability_constraints", ""),
                         "verification_logic": matched_rule.get("verification_logic", "")
@@ -237,6 +292,25 @@ class ASTCoarseScanner:
         return {"cwe_id": "Unknown", "category": "General Sink"}
 
 if __name__ == "__main__":
+    # REQ-03: R0 AST 物理工具强制 self-check 支持
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-check":
+        if HAS_TREE_SITTER:
+            res = {
+                "status": "ok",
+                "has_tree_sitter": True,
+                "version": getattr(tree_sitter, "__version__", "available")
+            }
+            print(json.dumps(res))
+            sys.exit(0)
+        else:
+            res = {
+                "status": "error",
+                "has_tree_sitter": False,
+                "message": "tree_sitter or tree_sitter_languages package not installed in environment"
+            }
+            print(json.dumps(res))
+            sys.exit(1)
+
     workspace = sys.argv[1] if len(sys.argv) > 1 else "."
     output_dir = sys.argv[2] if len(sys.argv) > 2 else workspace
     script_dir = os.path.dirname(os.path.abspath(__file__))

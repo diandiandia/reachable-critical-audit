@@ -1,6 +1,15 @@
 # Reachable Critical Audit Skill -- 详细需求文档 (Requirements Specification)
 
-本文档系统整理了 `reachable-critical-audit` 技能的全部核心功能与非功能性需求，并对所有需求进行了规范编号（REQ-01 至 REQ-13）。
+本文档系统整理了 `reachable-critical-audit` 技能的全部核心功能与非功能性需求，并对所有需求进行了规范编号（REQ-01 至 REQ-20）。本版本相对 pre-v2 的关键修订：
+
+- **REQ-01** 双平台兼容（Antigravity `define_subagent` / opencode `task` / Antigravity `agy` CLI 可选），不再绑定单一平台。
+- **REQ-02** 由"严格白名单拒绝审计"改为"层级 fallback L0/L1/L2"，确保非预设语言也能审计。
+- **REQ-06 / REQ-19** 新增"跨进程/跨 DSO 边界 sink 终结"规则，解决 framework 项目跨进程透传必漏报的问题。
+- **REQ-09** `verify_queue.json` 强制落盘 + `NEEDS_REVIEW` 兜底状态，杜绝漏报黑洞。
+- **REQ-10** 量化公式重做，区分 L0/L1/L2 候选来源，新增 Sink Discovery Rate 与 False Negative Risk。
+- **REQ-11** 规则库来源改为"CodeQL 官方 qll 模型清洗 + 项目 wrapper 自识别"双源。
+- **REQ-15** 业务假说清单固化为 6 类必选，不再自由推演。
+- **REQ-17 ~ REQ-20** 新增平台兼容层、框架感知扩展、跨边界 sink 终结、CodeQL 清洗工具四项需求。
 
 ---
 
@@ -8,69 +17,160 @@
 
 | 需求编号 (ID) | 需求名称 (Name) | 优先级 (Priority) | 描述概要 (Summary) |
 | :--- | :--- | :--- | :--- |
-| **REQ-01** | 原生 Subagent 拓扑编排 | P0 (Must Have) | 必须使用平台原生的 `define_subagent` 与 `invoke_subagent` 执行编排，免除外部脚本与 API Key。 |
-| **REQ-02** | 严格 Top 15 语言白名单 | P0 (Must Have) | 规则库仅支持排行前 15 的主流开发语言，明确不提供非预设语言的动态推理降级机制。 |
-| **REQ-03** | 混合双层扫描 (AST 物理工具) | P0 (Must Have) | 必须利用本地物理工具进行 Tree-Sitter 语法解析过滤，拒绝由大模型脑补 AST。 |
-| **REQ-04** | 物理过滤低危/规范与三方库噪音 | P0 (Must Have) | 必须在初筛阶段彻底忽略代码风格、命名规范、第三方开源/混淆的压缩脚本库（如 `.min.` 文件）以及超长行代码。 |
-| **REQ-05** | 数据流污点与业务逻辑双轨审计 | P0 (Must Have) | 明确分流处理数据流漏洞（Taint Analysis）与业务越权/逻辑缺陷（Property Check）两种审计逻辑。 |
-| **REQ-06** | 双向调用链数据流追踪 | P0 (Must Have) | 实现自 Sink 向 Source 的自底向上函数调用链逆向回溯。 |
-| **REQ-07** | 可达性条件过滤约束校验 | P1 (Should Have) | 在调用链中校验强类型转换、安全 Sanitizer 的防御有效性。 |
-| **REQ-08** | 特权提升可利用性分析 | P0 (Must Have) | 针对特权切换（如 setuid）判定提升后数据流是否可被低权限外部用户控制。 |
-| **REQ-09** | 分批并发控制与断点硬校验 | P0 (Must Have) | 支持 3-5 个子会话并发批处理审计。每批次完成后实时落盘，支持断点重启与 Assert 完整性校验，防跳过。 |
-| **REQ-10** | 审计漏斗量化度量 | P1 (Should Have) | 自动计算并输出规则匹配率、可达漏洞率和静态误报降噪率等量化指标。 |
-| **REQ-11** | 声明式静态配置 (AST & Regex) | P0 (Must Have) | 所有的 Sink/Source 匹配正则、AST S-expressions 及研判约束必须在 JSON 中固化。 |
-| **REQ-12** | 物理文件隔离与输出防污染 | P0 (Must Have) | 审计过程中产生的临时与最终文件，必须保存在工作区的 `.audit_results` 专属目录下，严禁直接写入源码根目录。 |
-| **REQ-13** | 有向自主逻辑漏洞探索 | P1 (Should Have) | 支持自动识别工作区高危业务模块并拉起子智能体使用模糊提示词进行自主逻辑审计。 |
+| **REQ-01** | 双平台原生 Subagent 拓扑编排 | P0 (Must Have) | 优先使用 `define_subagent`/`invoke_subagent`，opencode 平台降级为 `task`，`agy` CLI 为可选执行路径。 |
+| **REQ-02** | 语言层级 fallback (L0/L1/L2) | P0 (Must Have) | 15 种预设语言直接用 L0；含项目 wrapper 走 L1；非预设语言走 L2 自动生成 extended_profile。 |
+| **REQ-03** | AST 物理工具强制 R0 self-check | P0 (Must Have) | 启动首步必须运行 `ast_scanner.py --self-check`，失败即 fail-fast，拒绝 LLM 脑补 AST。 |
+| **REQ-04** | 物理过滤低危/规范与三方库噪音 | P0 (Must Have) | 必须在初筛阶段彻底忽略代码风格、命名规范、第三方 `.min.` 压缩库以及超长行代码。 |
+| **REQ-05** | 数据流污点与业务逻辑双轨审计 | P0 (Must Have) | TAINT_ANALYSIS 追 Source→Sink 污染链；PROPERTY_CHECK 识别属主校验缺失/跨边界透传/导出无权等模式。 |
+| **REQ-06** | 双向调用链数据流追踪 | P0 (Must Have) | 自 Sink 向 Source 自底向上回溯；遇跨进程/跨 DSO/跨 IPC 边界时按 REQ-19 终结判定。 |
+| **REQ-07** | 可达性条件过滤约束校验 | P1 (Should Have) | 调用链中遇到强类型转换、白名单、参数化绑定等无法穿透的 Sanitizer，判定 UNREACHABLE 并丢弃。 |
+| **REQ-08** | 特权提升可利用性分析 | P0 (Must Have) | 针对特权切换 Sink，判定提权后动作参数是否仍混入低特权用户可控变量。 |
+| **REQ-09** | verify_queue 状态机与断点硬校验 | P0 (Must Have) | 候选入队 → 分批并发 → 每批强制落盘 → 状态机 PENDING/VERIFIED/REACHABLE/UNREACHABLE/NEEDS_REVIEW → Assert 兜底。 |
+| **REQ-10** | 审计漏斗量化度量 (L0/L1/L2 区分) | P1 (Should Have) | Coverage/Reachability/Noise Reduction 三率 + Sink Discovery Rate + False Negative Risk，分母按 L0+L1+L2 合计。 |
+| **REQ-11** | 声明式静态配置 + CodeQL 双源 | P0 (Must Have) | `security_profiles.json` 必须源自 CodeQL qll 清洗（L0），并支持 `wrapper_detection` 配置驱动的 L1 扩展。 |
+| **REQ-12** | 物理文件隔离前置守卫 | P0 (Must Have) | R0 阶段 `mkdir .audit_results/`，任何报告/中间产物路径必须以此为前缀；违反即流程失败。 |
+| **REQ-13** | 有向自主逻辑漏洞探索 | P1 (Should Have) | 静态规则审计后扫描高危业务模块，模糊提示词并发自主威胁建模。 |
+| **REQ-14** | 启发式项目架构与业务域自动感知 | P0 (Must Have) | 解析 README/Manifest/Proto/AIDL 自动判别业务领域。 |
+| **REQ-15** | 固化 6 类业务威胁假说 | P0 (Must Have) | 必须推演并回应 6 类固定假说：CWE-789/125-787/416-UAF/跨进程/导出无权/越权-多租户。 |
+| **REQ-16** | 业务逻辑专项 Subagent 并行深钻 | P0 (Must Have) | 通过平台任务编排拉起 `business-logic-verifier` 并发深钻锚点。 |
+| **REQ-17** | 平台兼容层与执行模式自检 | P0 (Must Have) | 启动时探测平台能力（`define_subagent` / `task` / `agy`），选择执行模式写入 `.audit_results/execution_mode.json`。 |
+| **REQ-18** | 框架感知扩展 (R1.5 阶段) | P0 (Must Have) | 按 `wrapper_detection` 扫描项目自有 wrapper（如 `osi_*`、`STREAM_TO_*`、Android SQL），产出 `extended_sinks.json` 并入队。 |
+| **REQ-19** | 跨进程/跨 DSO 边界 sink 终结 | P0 (Must Have) | 调用链终止于 IPC/DSO/Provider 边界且对方参数为自由文本时，边界即 sink，标记 `REACHABLE_ACROSS_BOUNDARY`。 |
+| **REQ-20** | CodeQL 模型清洗工具与可重现更新 | P0 (Must Have) | 提供 `tools/codeql_sink_extractor.py`，从 CodeQL qll 文件提取 sink/source 写入 JSON，支持版本可重现。 |
 
 ---
 
 ## 🎯 详细需求规约说明
 
-### REQ-01: 原生 Subagent 拓扑编排
-*   **详细描述**：安全审计必须依托平台原生的智能体拓扑编排。由 Parent Agent 动态调用 `define_subagent` 创建专用的漏洞校验子智能体（vulnerability-verifier），并通过 `invoke_subagent` 执行隔离验证。该过程必须共享本地会话授权，**极力避免配置 and 暴露任何第三方大模型 API Key**。
+### REQ-01: 多平台原生 Subagent 拓扑编排与降级路径
+*   **详细描述**：安全审计依托平台原生的智能体拓扑编排，且必须支持跨平台。优先使用 Antigravity 原生 `define_subagent` 创建 `vulnerability-verifier` / `business-logic-verifier` / `framework-sink-extractor` 子智能体并通过 `invoke_subagent` 隔离执行；在仅提供通用 task 工具的 Agent 平台（如 opencode）上，自动降级为 **Mode A'**（`task(subagent_type="general", description="<role>", prompt=<同一任务书>)`）；在无子智能体工具的环境（如 Claude Code 或通用命令行）上，自动降级为 **Mode A'' (Single-Agent In-Process Fallback)**，由主 Agent 在本地会话中按队列串行研判。Antigravity CLI（`agy` + `run_workflow.js`）作为可选执行路径 **Mode B** 保留，由 REQ-17 的模式自检决定是否启用。
+*   **强制约束**：无论哪种执行模式，均不允许在网络中传输、存储或暴露任何第三方大模型 API Key。流程层面（R0 工具自检、verify_queue 落盘、R4 假说 6 类必选、量化公式）必须一致，不因模式而异。
 
-### REQ-02: 严格 Top 15 语言白名单
-*   **详细描述**：系统仅支持 Python, C/C++ (含 .c/.h 映射), Java, JS/TS, C#, Go, Rust, PHP, Ruby, Swift, Kotlin, Scala, Shell, Perl, PowerShell 共 15 种开发语言。**不提供任何非预设语言的动态降级生成，若属于此 15 种语言白名单之外 of 源文件，系统直接拒绝审计**。
+### REQ-02: 语言层级 fallback (L0/L1/L2)
+*   **详细描述**：系统按三层级处理语言覆盖，**删除 pre-v2 中"白名单外语言直接拒绝审计"的约束**：
+    *   **L0**：项目主语言属于 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）时，直接加载 `security_profiles.json` 中固化的 Top-N 规则。每个候选节点必须标注 `origin: "L0"`。
+    *   **L1**：项目主语言在 L0 之内，但使用了项目自有的 sink/source wrapper（如 Android Bluetooth 的 `osi_*alloc`、`STREAM_TO_UINT*` 宏，PHP 框架的 `DB\SQL::exec` 等）。由 REQ-18 的 R1.5 阶段识别产出 `extended_sinks.json`，并入候选队列，标注 `origin: "L1"`。
+    *   **L2**：项目包含非预设语言（如 Erlang、Haskell、Cobol）。Agent **必须**利用内置安全知识动态生成该语言的 Top 10 高危漏洞映射（仅限 RCE、SQLi、SSRF、越权、反序列化类别），落盘为 `.audit_results/extended_profile.json`，由主 Agent 复核后才并入候选队列，标注 `origin: "L2"`。
+*   **强制约束**：L2 fallback 产物必须经主 Agent 显式复核签名（在 `extended_profile.json` 中写 `reviewed_by: "main-agent"` 字段）后才能进入 R3 验证队列。
 
-### REQ-03: 混合双层扫描 (Grep & AST 辅助工具)
-*   **详细描述**：初筛阶段不能依赖大模型脑补 AST 语法树。系统必须借助本地物理分析工具 `tools/ast_scanner.py` 执行双层扫描。首先利用文本正则进行极速初筛缩窄范围，再调用 `tree-sitter` 执行精确的 S-expression 语法校验。若本地环境缺少依赖或解析报错，直接停止审计流程，拒绝进行非确定性猜测。
+### REQ-03: AST 物理工具强制 R0 self-check
+*   **详细描述**：Skill 启动后第一步（R0 阶段）必须运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` 及对应语言 grammar 可用。脚本输出 JSON（如 `{"status": "ok", "has_tree_sitter": true}`），self-check 失败（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。self-check 通过后才允许进入 R1 静态扫描；R1 阶段的正则粗筛若缺乏 AST S-expression 校验支撑，必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
-*   **详细描述**：系统在初筛和审计代码时，对于“未采用驼峰命名”、“缺失文件注释”、“非安全场景使用弱随机数”等规范问题必须物理忽略。同时，**系统必须自动识别并过滤第三方开源/混淆的压缩脚本库（如文件名包含 `.min.` 的 JS/CSS 文件）**，并对匹配出的超长代码行限制在 1000 字符内做截断，以防子会话由于提示词超长而挂起或触发大模型安全策略。
+*   **详细描述**：初筛与审计阶段必须物理忽略：未采用驼峰命名、缺失文件注释、非安全场景弱随机数、代码风格违规等规范类问题。同时必须自动识别并过滤第三方压缩/混淆库（文件名含 `.min.`、`vendor/`、`node_modules/`、`third_party/`、`libs/` 等典型路径），匹配行长度超过 1000 字符强制截断并标注 `... [TRUNCATED]` 以防空提示词触发模型安全策略或导致子会话挂起。
 
 ### REQ-05: 数据流污点与业务逻辑双轨审计
-*   **详细描述**：审计工作流必须支持数据流漏洞（如 SQL 注入、RCE）与业务逻辑漏洞（如越权操作、垂直鉴权绕过）的双轨制审计分流：
-    *   **污点分析 (TAINT_ANALYSIS)**：追踪外部 Source 到 Sink 的变量污染链路。
-    *   **属性校验 (PROPERTY_CHECK)**：针对业务逻辑越权，子智能体必须审查相关写操作逻辑中是否缺失了用户身份 ID 的属主归属鉴权比对代码。
+*   **详细描述**：双轨制审计分流，PROPERTY_CHECK 从 pre-v2 的粗关键字识别升级为模式识别：
+    *   **TAINT_ANALYSIS (污点分析)**：追踪外部 Source 到 Sink 的变量污染链，适用于 SQLi、RCE、SSRF、内存越界、UAF、未控内存分配等。
+    *   **PROPERTY_CHECK (属性与模式校验)**：从粗关键字改为结构化模式识别，覆盖 4 类模式：
+        1.  **missing_owner_check**：写/删/查资源方法体内未出现 session 用户 ID 与资源 owner 的相等性比对。
+        2.  **cross_boundary_trust_violation**：外部输入拼字符串后作为 `selection`/`command` 等 自由文本参数传入跨进程/跨 DSO API，且对应 API 缺省参数化字段为 null。
+        3.  **exported_no_permission**：AndroidManifest 等 manifest 文件中 `exported=true` 且无 `android:permission`。
+        4.  **privilege_boundary_skip**：提权前数据流入提权后执行的指令/文件路径。
+*   **强制约束**：PROPERTY_CHECK 模式定义必须固化在 `security_profiles.json` 的 `property_check_patterns` 字段，不允许散落在代码逻辑里；`ast_scanner.py` 扫描阶段需联动抽取生成 Candidate。
 
-### REQ-06: 双向调用链数据流追踪
-*   **详细描述**：当敏感 Sink 点匹配成功后，被唤醒的子智能体必须以该函数为终点，利用本地代码检索工具反向查找其所有的调用者（Callers）。从 Sink 节点自底向上逐层回溯，形成完整的函数调用路径拓扑图，直至追溯到外部输入 Source。
+### REQ-06: 双向调用链数据流追踪 + 跨边界终结
+*   **详细描述**：子智能体以匹配到的 sink 函数为回溯终点，利用本地代码检索（`grep` / `Grep` 工具）反向查找所有调用者，逐层向上构建 `Sink <- Caller_L1 <- Caller_L2 <- ... <- Source` 拓扑。遇接口/抽象类必须穿透到所有具体实现类继续回溯。
+*   **跨边界终结**：当调用链到达以下边界时，按 REQ-19 终结判定，不再要求在当前仓库内闭环：
+    *   跨进程 IPC：`ContentResolver.query` / `Binder` transact / `Intent` extras / `broadcast`
+    *   跨 DSO：调用外部动态库函数且无源码
+    *   跨 Provider authority：`content://<authority>/...` 切换到第三方实现的 ContentProvider
 
 ### REQ-07: 可达性条件过滤约束校验
-*   **详细描述**：在构建的调用路径中，Subagent 必须审计变量传递过程中的控制流约束。如果遇到变量被强类型转换（如强转为整型或 UUID 格式）、通过了安全的白名单过滤器、或者调用中使用了参数化绑定，必须将该候选点标记为 `UNREACHABLE` 并从报告中丢弃。
+*   **详细描述**：调用链中校验变量传递的控制流约束。若变量在传递途中经过无法绕过的：强类型转换（int/UUID）、严格白名单过滤器、参数化绑定（prepared statement + bindValue）、`if (offset+N>p_pkt_end)` 显式边界检查，则判定 `UNREACHABLE` 并立即从报告丢弃。判定 UNREACHABLE 必须记录阻断点 `file:line` 入 `verify_queue.json` 的 `blocking_point` 字段。
 
 ### REQ-08: 特权提升可利用性分析
-*   **详细描述**：针对 C/C++ , Go, Python, Node.js 中特权更改的敏感 Sink 函数，Subagent 必须执行特权提升可利用性研判。验证提权后执行的高特权动作参数，是否依然混入了提权前由普通低特权用户传入的变量。如果提权后执行的操作完全由硬编码参数控制，则判定为安全设计并忽略。
+*   **详细描述**：针对 C/C++/Go/Python/Node.js 的特权切换 Sink（`setuid`/`seteuid`/`setgid`/`setegid`/`setresuid`/`setresgid`/`capng_*`/`prctl(PR_SET_UID)`等），必须验证：提权后的指令参数或文件路径是否仍混入提权前低特权用户可控的变量。若提权后动作完全由硬编码参数控制，判定 `UNREACHABLE`；若提权后动作参数可被低特权用户影响，判定 `REACHABLE`。Android Bluetooth 等系统服务同样适用：蓝牙守护进程运行于 `android.uid.bluetooth` (1002)，任何能让该 UID 执行特权动作的远端输入都按提权对待。
 
-### REQ-09: 分批并发控制与断点硬校验
-*   **详细描述**：为了平衡审计效率与稳定性，工作流必须支持并发批处理调度。
-    1.  **分批并发**：支持每次并行启动 3-5 个子智能体进行数据流可达性/越权校验。
-    2.  **每批次落盘**：以批次（Batch）为最小事务单元。每一批次并发处理完毕后，必须立刻向 `verify_queue.json` 同步保存最新状态。
-    3.  **断点续传**：二次启动时自动跳过历史已完成的批次，仅验证剩余 `PENDING` 节点。
-    4.  **断言核对**：审计结束前强制 Assert 检查，确保所有问题 100% 审计完成，无一跳过。
+### REQ-09: verify_queue 状态机与 Schema 标准化
+*   **详细描述**：候选清单必须以状态机形式落盘到 `.audit_results/verify_queue.json`，**绝不允许只在内存中维护**：
+    1.  **入队 Schema**：每个候选节点包含规范字段：`{id, origin("L0"/"L1"/"L2"/"R4"), source_file, source_line, sink_type, status("PENDING"/"VERIFIED"), verdict, reachability_type, blocking_point}`。
+    2.  **分批并发/串行研判**：按 REQ-01 选定的执行模式分批研判，单批完成后**立即落盘**。
+    3.  **状态机**：`PENDING → VERIFIED → {REACHABLE | UNREACHABLE | NEEDS_REVIEW}`；子智能体返回模糊或拒绝回答时强制 `NEEDS_REVIEW`，不允许默认判定。
+    4.  **断点续传**：二次启动读取 `verify_queue.json`，跳过已 `VERIFIED` 的节点，只处理 `PENDING`。
+    5.  **Assert 兜底**：报告生成前必须 Assert，存在 `PENDING` 节点则 `exit(2)` 强制中断，杜绝跳过。`NEEDS_REVIEW` 节点必须在报告中显式列出，不允许静默丢弃。
 
-### REQ-10: 审计漏斗量化度量
-*   **详细描述**：系统最终输出的审计报告中，必须提供明确的量化指标，以体现安全分析的投入产出比：
-    *   **规则覆盖率 (Rule Coverage Rate)**：已验证 Sink 数量 / 匹配到的总候选点数。
-    *   **真实可达转化率 (Reachability Success Rate)**：确认可达漏洞数 / 匹配到的总候选点数。
-    *   **静态误报降噪率 (Noise Reduction Rate)**：判定为不可达的候选点数 / 匹配到的总候选点数。
+### REQ-10: 审计漏斗量化度量 (L0/L1/L2 区分)
+*   **详细描述**：量化公式分母必须为 `(R1 + R1.5 + R4)` 候选总数，分子按来源标记 `origin` 字段：
+    *   **Rule Coverage Rate** = `(R1 + R1.5 + R4) 已验证候选` / `(R1 + R1.5 + R4) 总候选`
+    *   **Reachability Rate** = `REACHABLE` / 已验证候选
+    *   **Noise Reduction Rate** = `UNREACHABLE` / 已验证候选
+    *   **Sink Discovery Rate** *(新增)* = `R1(L0) 命中` / `(R1 + R1.5 + R4)` 总候选 — 反映 L0 规则库的召回能力。
+    *   **False Negative Risk** *(新增)* = `(L1 占比 + R4 REACHABLE 占比)` — 反映规则盲区。
+    *   **Origin Breakdown** *(新增)* = 输出 `L0`, `L1`, `L2`, `R4` 的各分类候选统计数。
+*   **强制约束**：明确分母为"已入队候选数"（即进入 verify_queue 的总数），`NEEDS_REVIEW` 计入分母，采样策略与全量指标必须在 JSON 和 Markdown 报告中双输出。
 
-### REQ-11: 声明式静态配置 (AST & Regex)
-*   **详细描述**：为了确保在不同项目中审计基准的绝对一致与可复制性，所有的语言漏洞分类、对应的 CWE 编号、Sink/Source 匹配正则以及 AST S-expressions，必须集中固化存放在独立的、可编辑的 JSON 配置文件中，禁止在程序逻辑中散落或硬编码规则。
+### REQ-11: 声明式静态配置 + CodeQL 双源
+*   **详细描述**：规则库 `security_profiles.json` 必须满足双源约束：
+    *   **L0 源 = CodeQL 官方 qll 模型清洗**：清洗过程由 REQ-20 的 `codeql_sink_extractor.py` 完成，可重现。
+    *   **L1 源 = 项目 wrapper_detection**：`security_profiles.json` 内必须包含 `wrapper_detection` 段，描述如何让 R1.5 阶段识别项目自有 sink wrapper。
+    *   **PROPERTY_CHECK 模式段**：包含 4 类逻辑/属性校验模式的结构化定义。
+    *   **手工补丁段**：CodeQL 不覆盖但必须纳入的 sink，单独列在 `manual_additions` 段。
+*   **强制约束**：禁止在程序逻辑中散落或硬编码任何 sink/source 规则；所有规则必须在 JSON 中可审计。
 
-### REQ-12: 物理文件隔离与输出防污染
-*   **详细描述**：系统在运行期间生成的所有中间件 and 最终审计产物（如 `verify_queue.json`、`reachable_vulnerabilities_report.json` 等）必须在目标工作区创建一个专属的 `.audit_results` 目录下生成并写入，绝对不允许直接写在工作区的根目录下，以防污染和修改被审计项目的源码库。
+### REQ-12: 物理文件隔离前置守卫
+*   **详细描述**：R0 阶段必须 `mkdir -p .audit_results/`，后续所有产物（`verify_queue.json` / `extended_sinks.json` / `extended_profile.json` / `execution_mode.json` / `architecture_view.json` / `reachable_vulnerabilities_report.{md,json}`）路径必须以 `.audit_results/` 为前缀。写文件前必须自检路径，**任何对项目源码根目录的直接报告写入都视为流程违规**，立即终止。
 
 ### REQ-13: 有向自主逻辑漏洞探索
-*   **详细描述**：在第一阶段静态规则审计（Top 10 CWE 点验证）完成后，工作流应能对目标代码库进行扫描，提取出高危业务领域模块（如 `auth`、`payment`、`order`、`admin` 等关联文件），并为每一个模块拉起子智能体，结合模糊提示词（Fuzzy/Exploratory Prompt）对其进行发散的威胁建模与自主代码审计，实现深度逻辑隐患挖掘。
+*   **详细描述**：静态规则审计（R1 + R1.5 + R3）完成后，工作流扫描高危业务领域模块（如 `auth`/`payment`/`order`/`admin`/`map`/`pbap`/`avrc` 等关联文件），结合模糊提示词进行发散威胁建模。模块覆盖上限 6 个文件。
 
+### REQ-14: 启发式项目架构与业务域自动感知
+*   **详细描述**：通过解析项目顶层结构文件（`README.md` / `AndroidManifest.xml` / `pom.xml` / `Cargo.toml` / `.proto` 等）自动判别业务领域，生成《业务域架构视图》写入 `.audit_results/architecture_view.json`，供 R4 阶段假说推演使用。
+
+### REQ-15: 固化 6 类业务威胁假说
+*   **详细描述**：R4 阶段必须推演并回应以下 6 类固定假说，**禁止自由发散**，每类必须给出三选一明确结论：`confirmed (已坐实)` / `reviewed_clean (已审查无问题)` / `not_applicable (不适用)`。
+    1.  **CWE-789 远端控制 allocation size**
+    2.  **CWE-125/787 远端控制解引用长度/索引**
+    3.  **CWE-416 异步对象生命周期竞态（UAF）**
+    4.  **跨进程信任边界破坏（CWE-20+89/78）**
+    5.  **Exported component 鉴权缺失（CWE-862/926）**
+    6.  **多租户/owner 比对缺失（CWE-639/285）**
+
+### REQ-16: 业务逻辑专项 Subagent 并行深钻
+*   **详细描述**：针对 R4 推演锚点，Agent 通过编排机制拉起 `business-logic-verifier` 子智能体并发深钻。结果落盘至 `verify_queue.json` 的 `r4_findings` 段（标注 `origin: "R4"`）并写入最终报告。
+
+### REQ-17: 平台兼容层与执行模式自检
+*   **详细描述**：Skill 启动时按以下顺序探测执行模式，并将探测结果落盘写入 `.audit_results/execution_mode.json`：
+    1.  工具列表含 `define_subagent` 或环境变量 `REACHABLE_AUDIT_MODE=native` → **Mode A (Antigravity Native)**。
+    2.  工具列表含 `task` 或环境变量 `OPENCODE=1` → **Mode A' (OpenCode Native)**。
+    3.  尝试 `node run_workflow.js --check-availability`，返回 Mode B → **Mode B (Antigravity CLI)**。
+    4.  既无 `define_subagent` 也无 `task` 工具且 CLI 不可用 → **Mode A'' (Single-Agent In-Process Fallback)**，主 Agent 在本地主会话中串行研判。
+*   **强制约束**：`run_workflow.js` 在 CLI 探测时遇到 ENOENT 必须返回结构化 `{mode: "AGENT_NATIVE_FALLBACK", reason}` 对象且不触发崩溃，引导主 Agent 切换模式接管。
+
+### REQ-18: 框架感知扩展 (R1.5 阶段)
+*   **详细描述**：R1 静态扫描完成后，按 `security_profiles.json` 的 `wrapper_detection` 配置扫描项目自定义 wrapper（allocator / parser macros / lifecycle / sql wrappers / ipc sinks 等）。产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json`，标记 `origin: "L1"`。
+*   **强制触发条件**：若 R1 在项目主体语言上命中数为 0，但项目代码源文件数 > 500，则 R1.5 **强制执行**。
+
+### REQ-19: 跨进程/跨 DSO 边界 sink 终结
+*   **详细描述**：调用链回溯到达以下边界时，按规则判定为 sink 达成，标记 `verdict=REACHABLE_ACROSS_BOUNDARY`，不要求在当前仓库内闭环追溯外部实现：
+    *   **跨进程 IPC**：`ContentResolver.query(uri, ..., selection, selectionArgs, ...)` 当 `selection` 含字符串拼接且 `selectionArgs` 为 null；`Binder.transact`；`Intent` extras 携带自由文本；`broadcast` 发送。
+    *   **跨 DSO**：调用外部动态库导出函数且无源码，参数为远端可控自由文本。
+    *   **跨 Provider authority**：URI authority 切换到第三方 ContentProvider 实现。
+*   **判定规则**：边界 API 的自由文本参数（如 `selection`）若含外部输入拼接 OR 参数化字段（如 `selectionArgs`）缺省为 null，即判定 sink 达成；若边界 API 强制参数化（如 `ContentValues` + `update(uri, values, where, args)` 且 `where` 经 `?` 占位 + `args` 绑定），则判定阻断。
+*   **强制约束**：pre-v2 要求"本仓库内闭环"导致 framework 项目（如 Android Bluetooth MAP）必漏报，本规则正式放松该约束。
+
+### REQ-20: CodeQL 模型清洗工具与可重现更新
+*   **详细描述**：提供 `tools/codeql_sink_extractor.py`，从 CodeQL qll 文件提取 sink/source 函数名写入 `security_profiles.json`。清洗流程必须可重现：
+    1.  `git clone https://github.com/github/codeql --depth 1 --branch <tag>` 固定版本
+    2.  对每个语言的 `ql/lib/semmle/code/<lang>/security/*.qll`，按正则提取 `hasGlobalName("xxx")` / `hasName([...])` / `getMethod("xxx")` 等模式
+    3.  按 CWE 归类（CodeQL 按 CWE 目录组织）
+    4.  输出到 `security_profiles.json` 对应语言段，并写入 `codeql_revision` 字段记录所用 CodeQL 版本
+*   **强制约束**：每次更新 `security_profiles.json` 必须更新 `codeql_revision` 字段；手工补丁（`manual_additions` 段）必须标注来源理由与不在 CodeQL 中的原因。
+
+---
+
+## 📋 修订前后对照表 (Change Log)
+
+| 需求 | pre-v2 | v2 | 修订理由 |
+| :--- | :--- | :--- | :--- |
+| REQ-01 | 单一 `define_subagent`/`agy` | 双平台兼容 + `agy` 可选 | opencode 平台无 `define_subagent`，需降级；保留 Antigravity 兼容 |
+| REQ-02 | 严格白名单，拒绝审计 | L0/L1/L2 层级 fallback | pre-v2 与 SKILL.md Fallback 段自相矛盾 |
+| REQ-03 | 提及但未强制 | R0 强制 self-check，失败 fail-fast | ast_scanner.py 从未被调用，REQ-03 形同虚设 |
+| REQ-05 | PROPERTY_CHECK 粗关键字 | 4 类模式识别 | `admin/manage/delete` 关键字毫无意义 |
+| REQ-06 | 要求本仓库闭环 | 跨边界按 REQ-19 终结 | MAP SQL 注入 sink 在外部 Provider，pre-v2 必漏报 |
+| REQ-09 | 提及但未落盘 | verify_queue 状态机强制落盘 | pre-v2 两次审计均未生成 verify_queue.json |
+| REQ-10 | Coverage = 验证/匹配 | 区分 L0/L1/L2 分母 | pre-v2 Bluetooth 报告 Coverage 造假(11% 写成 100%) |
+| REQ-11 | 手写 JSON | CodeQL 清洗 + 手工补丁双源 | pre-v2 缺失 CWE-789/787/125, 无 osi_*/STREAM_TO_* |
+| REQ-12 | 事后要求自觉 | 前置守卫 + 路径前缀强制 | pre-v2 Bluetooth 根目录残留报告文件 |
+| REQ-15 | 自由 3~5 个假说 | 固化 6 类必选 | pre-v2 漏推演 CWE-789/UAF 跨进程等假说 |
+| REQ-17~20 | 不存在 | 新增 | 补平台兼容层 / R1.5 / 跨边界 / CodeQL 工具 |

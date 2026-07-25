@@ -1,63 +1,358 @@
 ---
 name: reachable-critical-audit
-description: 专门针对项目进行严重漏洞（RCE, SQLi, SSRF, Bypasses）的可达性分析审计，忽略代码规范、弱随机数等低风险噪音。仅依赖 Agent 本地工具和内置大模型，不需要配置任何外部 LLM API Key。
+description: 专门针对项目进行严重漏洞（RCE, SQLi, SSRF, Bypasses, UAF, OOB, 未控内存分配）的可达性分析审计。五阶段漏斗模型（R0 工具自检 + R1 静态规则 + R1.5 框架感知扩展 + R3 双向回溯 + R4 业务逻辑深钻），双平台兼容（Antigravity define_subagent / opencode task / agy CLI 可选），规则库源自 CodeQL 官方 qll 清洗 + 项目 wrapper 自识别。忽略代码规范、弱随机数等低风险噪音。
 ---
 
-# Reachable Critical Audit Skill (可达性严重漏洞审计)
+# Reachable Critical Audit Skill v2 (可达性严重漏洞审计)
 
 > [!IMPORTANT]
-> **本 Skill 旨在代替传统漏报/误报极高的静态扫描工具。Agent 必须严格遵守以下规则，忽略一切代码规范与合规性噪音，只聚焦于验证“外部可控输入是否能真实到达高危敏感 Sink 点”的真实严重漏洞。**
+> **本 Skill v2 旨在替代 pre-v2 在两次真实审计（tirreno / Android Bluetooth）中暴露的盲区**：规则库只覆盖原生 sink 漏掉 `osi_*alloc` / `STREAM_TO_*` / Android `ContentResolver.query`；要求"本仓库闭环"漏掉跨进程信任边界破坏；`verify_queue.json` 从未落盘；ast_scanner.py 形同虚设；Coverage Rate 公式导致造假。v2 通过五阶段漏斗 + 平台兼容层 + CodeQL 双源 + 跨边界终结四项核心改动系统修复。Agent 必须严格遵守本规范，忽略代码规范与合规性噪音，只聚焦"外部可控输入是否能真实到达高危 Sink 点（含跨进程边界）"的真实严重漏洞。
 
 ---
 
-## 🎯 核心使命：无 Key 自治与 100% 可达性验证
+## 🎯 核心使命
 
-本 Skill 运行在 Antigravity 平台的原生 Agent 之上，**完全使用 Agent 自身的 LLM 能力与本地工具，无需配置任何第三方大模型 API Key**。
-
-为了确保在不同项目、不同运行周期中审计基准的**强一致性与可量化性**，Agent 在执行此 Skill 时，必须加载并严格遵守固化的规则配置文件：`resources/security_profiles.json`。
-
----
-
-## 🛠️ 阶段 1：规则固化与未知语言的 Top 10 降级生成 (Profiling & Fallback)
-
-在进入任何审计流程前，Agent 必须确定要扫描的语言，并获取相应的规则对齐：
-1. **基准规则对齐**：Agent 首先读取并解析项目根目录的 `resources/security_profiles.json`。如果项目语言属于已定义的语言（Java、C++、Go、Python、JavaScript 等），直接加载其固化的 Top 10 规则。
-2. **非预设语言的 Top 10 降级生成 (Universal Fallback)**：如果项目中包含配置文件未显式定义规则的语言（如 Erlang、Haskell、Cobol 等）：
-   * Agent **必须利用其内置的安全大模型知识，动态生成该语言的 Top 10 核心高危漏洞映射（仅限 RCE、SQLi、SSRF、越权、反序列化等严重漏洞类别）**。
-   * 提取该语言对应的最危险的 Sink 函数签名。
-   * 仅针对这 10 个高危类别的 Sink 点在项目中进行搜索，**严禁发散到代码风格、规范噪音**。
-3. **过滤低风险噪音**：不在 Top 10 规则内的 CWE 类别，一律**物理忽略**。
+- **无 Key 自治**：完全使用 Agent 自身的 LLM 能力与本地工具，无需任何第三方大模型 API Key。
+- **双平台兼容**：保留 Antigravity `define_subagent`/`invoke_subagent` + `agy` CLI，自动降级到 opencode `task` 工具。
+- **CodeQL 双源规则库**：规则源自 CodeQL 官方 qll 清洗（L0）+ 项目 wrapper 自识别（L1）+ 非预设语言生成（L2）。
+- **跨边界 sink 终结**：调用链到达 IPC/DSO/Provider 边界即判定 sink 达成，不要求追溯外部实现。
+- **量化指标可问责**：区分 L0/L1/L2 候选来源，Sink Discovery Rate 量化规则库盲区。
 
 ---
 
-## 🔍 阶段 2：双向数据流追踪与可达约束验证 (Reachability Constraint Auditing)
+## 🔌 平台兼容层 (Platform Adapter)
 
-一旦定位到敏感 Sink 点，Agent 必须通过**“回溯法”**验证其可达性。
+Skill 必须在 R0 阶段探测平台能力，选择执行模式并写入 `.audit_results/execution_mode.json`。三种模式行为一致，仅原语不同。
+
+| 模式 | 平台 | 编排原语 | Subagent 类型 | 探测条件 |
+|---|---|---|---|---|
+| **A** | Antigravity | `define_subagent` + `invoke_subagent` | `vulnerability-verifier` / `business-logic-verifier` / `framework-sink-extractor` | 工具列表含 `define_subagent` 或 `REACHABLE_AUDIT_MODE=native` |
+| **A'** | opencode 等 | `task(subagent_type="general"/"explore")` | 通用子智能体（task 的 description + prompt 承载角色） | 工具列表含 `task` 或 `OPENCODE=1`；或 Mode A 不可用 |
+| **A''** | Claude Code 等 | 主 Agent 单进程本地串行研判 (`grep_search`/`view_file`) | 无子智能体（主进程直接遍历 verify_queue） | 既无 `define_subagent` 也无 `task` 工具；或作为通用降级 |
+| **B** | Antigravity CLI | `run_workflow.js` + `agy` spawn | agy 子进程会话 | `node run_workflow.js --check-availability` 返回 Mode B；ENOENT 切回 Mode A' 或 Mode A'' |
+
+**强制约束**：无论何种模式，R0 工具自检、`verify_queue.json` 落盘、R1.5 强制触发条件、R4 6 类固化假说、REQ-10 量化公式必须一致执行。
+
+> 在 opencode 等 fallback 平台上，SKILL.md 后文中所有出现的 `define_subagent`/`invoke_subagent` 调用描述在 Mode A' 下等价于 `task(subagent_type="general", description="<role>: <id>", prompt=<任务书>)`；在 Mode A'' 下由主 Agent 在本地会话中直接按任务书要求读取代码并更新 `verify_queue.json`。详见附录 A 任务书模板。
+
+
+---
+
+## 🛠️ R0：工具自检 + 平台探测 + 目录守卫
+
+Skill 启动后**第一步必须**执行以下三件事，任何一步失败即 fail-fast 终止审计：
+
+1. **AST 工具自检**：运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` + 对应语言 grammar 可用。失败绝不允许降级为 LLM 脑补 AST。
+2. **平台模式探测**：按"平台兼容层"表格顺序探测，结果写入 `.audit_results/execution_mode.json`：
+   ```json
+   {"mode": "A_NATIVE_ANTIGRAVITY|A_NATIVE_OPENCODE|B_ANTIGRAVITY_CLI",
+    "reason": "...", "detected_at": "ISO8601"}
+   ```
+3. **目录守卫（REQ-12 前置守卫）**：`mkdir -p .audit_results/`，所有后续产物（`verify_queue.json` / `extended_sinks.json` / `extended_profile.json` / `execution_mode.json` / `reachable_vulnerabilities_report.{md,json}` / `architecture_view.json`）路径必须以 `.audit_results/` 为前缀。任何对项目源码根目录的直接报告写入视为流程违规，立即终止。同时初始化空的 `verify_queue.json`：
+   ```json
+   {"schema_version": "2.0", "candidates": []}
+   ```
+
+---
+
+## 📊 R1：静态规则扫描（L0）
+
+加载 `resources/security_profiles.json` 的 `rules.<lang>` 段（L0 规则）。
+
+1. **基准规则对齐**：Agent 首先读取并解析 `resources/security_profiles.json`。`rules.<lang>` 段已由 CodeQL qll 清洗产出（`codeql_revision` 字段记录版本），覆盖 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）。
+2. **混合双层扫描**：先用 `tools/ast_scanner.py` 的正则粗筛全项目，再用 tree-sitter AST S-expression 精确校验。正则命中但 AST 校验不通过的候选点降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
+3. **过滤低风险噪音**：不在 Top-N 规则内的 CWE 类别物理忽略。代码风格、命名规范、非安全场景弱随机数、`.min.`/`vendor/`/`node_modules/`/`third_party/`/`libs/` 路径全部物理过滤。超 1000 字符行强制截断。
+4. **入队**：每个命中候选写入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L0`：
+   ```json
+   {"id": "CAND-001", "source_file": "...", "source_line": 123,
+    "sink_type": "CWE-789", "source_pattern": "STREAM_TO_UINT16",
+    "origin": "L0", "status": "PENDING"}
+   ```
+
+---
+
+## 🔍 R1.5：框架感知扩展（L1）— *新增阶段*
+
+R1 完成后必须执行（**强制触发条件**：R1 在项目主体语言上命中数为 0 且项目源文件数 > 500 时，R1.5 不可跳过 — 这是 pre-v2 两次漏报的根因补救）。
+
+1. **加载 wrapper_detection**：从 `security_profiles.json` 的 `wrapper_detection.<lang>` 段加载项目 wrapper 识别模式。例如：
+   - C++: `allocator_pattern` (osi_*/`*alloc*`) / `parser_macros` (STREAM_TO_*/`*_TO_STREAM`) / `lifecycle` (`*_delete`/`*::reset`) / `async_ownership` (`*::Unretained`)
+   - Java: `sql_wrappers` (`*query*`/`raw*`) / `ipc_sinks` (`ContentResolver.*`/`Intent.*`) / `android_ipc_getter` (`getFilter*`/`getExtra*`)
+2. **拉起 framework-sink-extractor 子智能体**：通过平台兼容层（Mode A/A'/B）拉起，任务书见附录 A.3。子智能体扫描全项目，找出名字匹配模式的、本项目自定义的函数/宏/方法。
+3. **落盘并入队**：产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L1`。
+4. **L2 fallback（非预设语言）**：若项目包含 15 种预设之外的语言（如 Erlang），Agent 必须用内置安全知识生成该语言的 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，**经主 Agent 显式复核签名**（写入 `reviewed_by: "main-agent"`）后才并入候选队列，`origin` 标记 `L2`。
+
+---
+
+## 🔄 R3：双向数据流追踪与可达约束验证
+
+`verify_queue.json` 中所有 `status=PENDING` 候选分批并发验证。每次 3~5 个子智能体（按平台兼容层选定的模式），单批完成立即落盘。
 
 ### 第一步：自底向上（Bottom-Up）追踪调用链
-对于发现的每一个敏感 Sink 函数，使用 `grep_search` 或者代码搜索定位其上游调用函数（Callers）：
-1. 找出谁调用了当前函数，以及传入的参数是如何赋值的。
-2. 逐层逆向往上找：`Sink` <- `Caller_Level_1` <- `Caller_Level_2` <- ... <- `Controller_Entry`。
-3. **多态穿透**：如果遇到接口（Interface）定义，必须使用搜索手段找到所有具体的实现类（Implementations），并在实现类的方法体内继续逆向追踪。
+对每个候选 sink，使用 `grep` / `Grep` 工具反向查找调用者（Callers）：
+1. 找出谁调用了当前函数，及传入参数如何赋值。
+2. 逐层逆向往上：`Sink` ← `Caller_L1` ← `Caller_L2` ← ... ← `Controller_Entry`。
+3. **多态穿透**：遇接口/抽象类必须搜索所有具体实现类继续回溯。
 
-### 第二步：可达性约束验证 (Reachability Constraints)
-在调用链回溯的过程中，分析入参是否在传递途中被“截断”或“净化”：
-*   **安全阻断**：参数是否经过了强类型转换、是否经过了严格的白名单校验，或者使用了安全的参数化查询。
-    *   *判定结果*：如果调用链中途有**无法绕过的安全净化或格式校验**，判定为 **`UNREACHABLE` (不可达/误报)**，立即丢弃，**不要**写入漏洞报告。
-*   **特权与越权约束**：针对特权提升（如 C/C++ 的 `setuid(0)`、`seteuid` 等），必须验证是否存在**普通用户/外部不可信实体所控制的数据**，能直接影响切换到 UID=0 (root) 后的后续操作或文件名/系统命令。若可以任意操纵提权后的指令参数，则判定为真实漏洞。
-*   **参数可控**：参数是否能毫无阻拦地一直溯源到**外部流量入口点（Source）**的入参（如 `HTTP Request Parameter`、`HTTP Headers` 等）。
-    *   *判定结果*：如果参数可以直接由外部用户控制，且中途没有被妥善处理，且符合该 CWE 对应的 `reachability_constraints`，判定为 **`REACHABLE` (真实漏洞)**。
+### 第二步：跨边界 sink 终结（REQ-19，*新增*）
+调用链到达以下边界时，**边界即 sink**，不要求在当前仓库内闭环追溯外部实现：
+
+| 边界类型 | 触发 API | 判定 |
+|---|---|---|
+| 跨进程 IPC | `ContentResolver.query(uri, ..., selection, selectionArgs, ...)` | `selection` 含拼接 OR `selectionArgs=null` → `REACHABLE_ACROSS_BOUNDARY`；强制 `?` 占位 + 绑定 → `UNREACHABLE` |
+| 跨 DSO | 调用外部动态库导出函数且无源码 | 自由文本参数含外部输入 → `REACHABLE_ACROSS_BOUNDARY` |
+| 跨 Provider authority | URI authority 切换到第三方 ContentProvider | 同 ContentResolver 规则 |
+| Binder transact / Intent extras | 跨进程调用携带自由文本 | 自由文本含外部输入 → `REACHABLE_ACROSS_BOUNDARY` |
+
+### 第三步：可达性约束验证
+回溯过程中分析入参是否被截断或净化：
+- **安全阻断**：强类型转换（int/UUID）、白名单、参数化绑定、`if (offset+N>p_pkt_end)` 显式边界检查 → `UNREACHABLE`，记录 `blocking_point` 入 `verify_queue.json`。
+- **特权提升**：`setuid`/`seteuid`/`capng_*`/`prctl` 等特权切换后，若指令参数仍混入低特权用户可控变量 → `REACHABLE`；完全硬编码 → `UNREACHABLE`。守护进程（如蓝牙 UID 1002）等系统服务同样适用。
+- **参数可控**：参数无阻拦溯源到外部 Source → `REACHABLE`，`reachability_type=DIRECT`。
+
+### 状态机推进
+
+每个候选 `status` 推进：`PENDING → VERIFIED`，并写入 `verdict` ∈ {`REACHABLE`, `UNREACHABLE`, `NEEDS_REVIEW`}，外加 `reachability_type` ∈ {`DIRECT`, `ACROSS_BOUNDARY`}、`call_chain`、`blocking_point`、`cwe`、`verified_at`。
+
+子智能体返回模糊或拒绝时**强制** `NEEDS_REVIEW`，不允许默认判定或静默丢弃。
+
+### R3 完成守卫
+R4 启动前必须 Assert：`verify_queue.json` 中无 `PENDING` 节点，否则 `exit(2)` 强制中断。`NEEDS_REVIEW` 节点必须在最终报告显式列出。
 
 ---
 
-## 📊 阶段 3：量化指标与结构化报告
+## 🧠 R4：启发式项目感知与业务逻辑深钻
 
-分析结束后，Agent 必须输出可量化的度量数据，并在 `reachable_vulnerabilities_report.md` 报告中体现：
+针对缺乏显式 sink 点的复杂业务逻辑隐患（状态机越权、并发竞争、身份校验绕过）。
 
-### 1. 量化审计度量 (Quantified Metrics)
-*   **配置规则匹配率 (Rule Coverage Rate)**:
-    $$\text{Coverage} = \frac{\text{已执行回溯验证的 Sink 点数}}{\text{静态代码中匹配到的 Sink 总数}}$$
-*   **真实可达转化率 (Reachability Success Rate)**:
-    $$\text{Reachability Rate} = \frac{\text{判定为 REACHABLE 的漏洞数}}{\text{静态匹配到的 Candidate 总数}}$$
-*   **静态误报降噪率 (Noise Reduction Rate)**:
-    $$\text{Noise Reduction} = \frac{\text{判定为 UNREACHABLE/误报的 Candidate 数}}{\text{静态匹配到的 Candidate 总数}}$$
+### 1. 项目架构自动感知（REQ-14）
+解析 README、Manifest、Proto、AIDL、系统设计等顶层文件，自动识别项目业务领域与核心功能点，写入 `.audit_results/architecture_view.json`。
+
+### 2. 固化 6 类业务威胁假说（REQ-15，*禁止自由发散*）
+必须推演并回应以下 6 类固定假说，每类必须给出三选一明确结论：`confirmed` / `reviewed_clean` / `not_applicable`，禁止默默跳过：
+
+| 序号 | 假说 | CWE | 检测要点 |
+|---|---|---|---|
+| 1 | 远端控制 allocation size | CWE-789 | 远端字段乘 `sizeof` 进 `*alloc`/`new[]`/`osi_*alloc` 无上限 |
+| 2 | 远端控制解引用长度/索引 | CWE-125/787 | 远端字段进数组下标/`memcpy` 长度/`STREAM_TO_*` 无边界检查 |
+| 3 | 异步对象生命周期竞态（UAF） | CWE-416 | 异步回调/队列/alarm 持 `Unretained(this)`/raw ptr，对象先释放 |
+| 4 | 跨进程信任边界破坏 | CWE-20+89/78 | 远端输入拼字符串进 ContentResolver.query/Binder/Intent 且参数化字段 null |
+| 5 | Exported component 鉴权缺失 | CWE-862/926 | manifest `exported=true` 且无 permission，或动态启用窗口期被第三方触达 |
+| 6 | 多租户/owner 比对缺失 | CWE-639/285 | 写/删/查资源方法体无 session vs owner 相等性比对 |
+
+### 3. Subagent 专项并发深钻（REQ-16）
+通过平台兼容层拉起 `business-logic-verifier` 子智能体（任务书见附录 A.2），并发深钻锚点。结果落 `verify_queue.json` 的 `r4_findings` 段，`origin=R4`。R4 完成后也必须 Assert：所有 R4 候选已 `VERIFIED`。
+
+---
+
+## 📊 量化指标与结构化报告
+
+分析结束后，Agent 必须输出可量化的度量数据，并严格在 `.audit_results/reachable_vulnerabilities_report.md` 及 `.audit_results/reachable_vulnerabilities_report.json` 体现（严禁直接写入源码根目录）：
+
+### 量化公式（REQ-10，*修订*）
+
+```
+Rule Coverage Rate    = (R1 + R1.5 + R4) 已验证候选  /  (R1 + R1.5 + R4) 总候选
+Reachability Rate     = REACHABLE                                  /  已验证候选
+Noise Reduction Rate  = UNREACHABLE                                /  已验证候选
+Sink Discovery Rate   = R1(L0) 命中                                /  (R1 + R1.5 + R4) 总候选
+                                                            ↑ 越接近 1 说明 L0 规则库越完备
+False Negative Risk   = L1 占比 + R4 REACHABLE 占比
+                                                            ↑ 越高说明仅靠 L0 漏报越多,督促规则库补齐
+```
+
+**强制约束**：
+- 分母 = `verify_queue.json` 中所有候选数（L0+L1+L2+R4），含 `NEEDS_REVIEW`。
+- 采样策略必须在报告中明示。
+- `NEEDS_REVIEW` 节点必须在报告中显式列出，不允许静默丢弃。
+
+### 报告必须包含的字段
+
+```json
+{
+  "report_meta": {...},
+  "quantified_metrics": {
+    "total_candidates": N,
+    "verified": N,
+    "reachable": N,
+    "unreachable": N,
+    "needs_review": N,
+    "rule_coverage_rate_pct": ...,
+    "reachability_rate_pct": ...,
+    "noise_reduction_rate_pct": ...,
+    "sink_discovery_rate_pct": ...,
+    "false_negative_risk_pct": ...,
+    "origin_breakdown": {"L0": N, "L1": N, "L2": N, "R4": N}
+  },
+  "reachable_vulnerabilities": [...],
+  "needs_review": [...],
+  "unreachable_verified": {...},
+  "defense_in_depth_gaps": [...]
+}
+```
+
+---
+
+## 📋 附录 A：子智能体任务书模板（三模式共用）
+
+### A.1 vulnerability-verifier 任务书
+
+```
+你是一个 vulnerability-verifier 子智能体。
+
+任务上下文:
+- 目标项目: <path>
+- 候选 ID: <id>
+- sink 类型: <CWE-xxx> <category>
+- 上下文摘要: <5 行内的关键信息: sink file:line, sink 调用, 参数来源候选项>
+
+任务:
+1. 以 sink 为终点, 用 grep/Grep 反向查找所有 Callers, 逐层向上回溯
+   构建调用链 Sink <- Caller_L1 <- ... <- Source
+2. 遇接口/抽象类必须穿透到所有具体实现类继续回溯
+3. 调用链到达跨进程 IPC / 跨 DSO / 跨 Provider authority 边界时, 按以下规则判定:
+   - ContentResolver.query/Binder.transact/Intent extras 边界 API
+   - 若自由文本参数(selection/command)含外部输入拼接 OR 参数化字段(selectionArgs)缺省为 null
+     → verdict=REACHABLE, reachability_type=ACROSS_BOUNDARY, 不要求追溯外部实现
+   - 若强制参数化(? 占位 + 绑定) → 阻断, UNREACHABLE
+4. 调用链中遇到无法绕过的强类型转换/白名单/参数化绑定/if (offset+N>p_pkt_end) 显式边界检查
+   → verdict=UNREACHABLE, 记录 blocking_point file:line
+5. 若无法明确判定 → verdict=NEEDS_REVIEW (不允许默认判定)
+
+输出格式(强制 JSON, 不要其他文字):
+{
+  "id": "<id>",
+  "verdict": "REACHABLE | UNREACHABLE | NEEDS_REVIEW",
+  "reachability_type": "DIRECT | ACROSS_BOUNDARY",
+  "call_chain": ["file:line", "file:line", ...],
+  "blocking_point": "file:line / null",
+  "evidence": "<一段说明>",
+  "cwe": ["CWE-xxx"]
+}
+```
+
+### A.2 business-logic-verifier 任务书
+
+```
+你是一个 business-logic-verifier 子智能体。
+
+任务上下文:
+- 目标项目: <path>
+- 假说 ID: <H-1~H-6>
+- 假说类型: <CWE-789 / CWE-125-787 / CWE-416-UAF / 跨进程 / 导出无权 / 越权-多租户>
+- 业务领域: <architecture_view.json 中的领域>
+- 锚点: <入口 file:line 列表>
+
+任务:
+1. 对分配的假说类型, 在锚点代码中寻找匹配模式:
+   - CWE-789: 远端字段 * sizeof 进 *alloc/new[]/osi_*alloc 无上限
+   - CWE-125/787: 远端字段进数组下标/memcpy 长度/STREAM_TO_* 无边界检查
+   - CWE-416 UAF: 异步回调/队列/alarm 持 Unretained(this)/raw ptr, 对象先释放
+   - 跨进程: 远端输入拼字符串进 ContentResolver.query/Binder/Intent 且参数化字段 null
+   - 导出无权: manifest exported=true 且无 permission 或动态启用窗口
+   - 越权-多租户: 写/删/查资源方法体无 session vs owner 相等性比对
+2. 不限于锚点, 可在全项目搜索该假说的同类模式
+3. 每个坐实的漏洞给出完整调用链(file:line)
+4. 若已审查无问题, 给出 reviewed_clean 与覆盖范围说明
+5. 若该假说不适用本业务领域, 给出 not_applicable 与判断理由
+
+输出格式(强制 JSON):
+{
+  "hypothesis_id": "<H-x>",
+  "verdict": "confirmed | reviewed_clean | not_applicable",
+  "findings": [
+    {
+      "title": "...",
+      "cwe": ["CWE-xxx"],
+      "severity": "Critical|High|Medium|Low",
+      "call_chain": ["file:line", ...],
+      "evidence": "...",
+      "fix": "..."
+    }
+  ],
+  "coverage_note": "<若 reviewed_clean, 说明审查范围; 若 not_applicable, 理由>"
+}
+```
+
+### A.3 framework-sink-extractor 任务书
+
+```
+你是一个 framework-sink-extractor 子智能体 (R1.5 阶段)。
+
+任务上下文:
+- 目标项目: <path>
+- wrapper_detection 配置: <security_profiles.json 中 wrapper_detection.<lang> 段>
+
+任务:
+1. 按 wrapper_detection.<lang>.allocator_pattern / parser_macros / lifecycle / async_ownership
+   / sql_wrappers / ipc_sinks / android_ipc_getter 等模式名, 用 grep/Grep 扫描全项目
+2. 找出名字匹配模式的、本项目自定义(非第三方库)的函数/宏/方法
+3. 对每个 wrapper, 判断:
+   - 是否 wrapping 了 sink 性质(分配内存/执行命令/拼接 SQL/跨进程调用/释放对象)
+   - 远端数据是否能流入该 wrapper
+4. 产出 extended_sinks.json, 每条含 file:line + wrapper 名 + 推断的 sink 性质 + CWE 类别
+
+输出格式(强制 JSON):
+{
+  "extended_sinks": [
+    {
+      "file": "...", "line": 123,
+      "wrapper_name": "osi_calloc",
+      "matched_pattern": "allocator_pattern:osi_*",
+      "inferred_sink_type": "CWE-789 UncontrolledMemoryAllocation",
+      "remote_data_reachable": true|unknown,
+      "evidence": "..."
+    }
+  ]
+}
+```
+
+---
+
+## 📋 附录 B：执行流程速查
+
+```
+R0  工具自检 + 平台探测 + mkdir .audit_results/ + 初始化 verify_queue.json
+     │  失败即 fail-fast
+     ↓
+R1  静态规则扫描 (L0):
+     │  ast_scanner.py 正则粗筛 + tree-sitter AST 校验
+     │  命中候选入队 origin=L0, status=PENDING
+     ↓
+R1.5 框架感知扩展 (L1) [强制:R1 命中 0 且文件数>500 时必执行]:
+     │  按 wrapper_detection 扫描项目自有 wrapper
+     │  extended_sinks.json 入队 origin=L1
+     │  非预设语言生成 extended_profile.json origin=L2 (主 Agent 复核)
+     ↓
+R3  双向回溯验证:
+     │  分批并发 3~5 子智能体 (平台兼容层选定模式)
+     │  每批立即落盘 verify_queue.json
+     │  状态机: PENDING → VERIFIED → {REACHABLE|UNREACHABLE|NEEDS_REVIEW}
+     │         + reachability_type ∈ {DIRECT, ACROSS_BOUNDARY}
+     │  跨边界按 REQ-19 终结判定
+     │  Assert: 无 PENDING 才能进 R4
+     ↓
+R4  业务逻辑深钻:
+     │  解析业务领域 → architecture_view.json
+     │  6 类固化假说 (H-1~H-6), 每类三选一结论
+     │  business-logic-verifier 子智能体并发深钻
+     │  r4_findings 入队 origin=R4
+     │  Assert: 所有 R4 候选已 VERIFIED
+     ↓
+最终 量化报告 (L0/L1/L2 区分):
+     │  reachable_vulnerabilities_report.{md,json}
+     │  MUST 包含: Sink Discovery Rate + False Negative Risk
+     │  MUST 列出 NEEDS_REVIEW (不允许静默丢弃)
+```
+
+---
+
+## 📋 附录 C：与 pre-v2 阶段命名映射
+
+| pre-v2 | v2 | 变化 |
+|---|---|---|
+| 阶段 1 (规则固化 + Fallback) | R0 + R1 + R1.5 | R0 强制工具自检;R1.5 框架扩展是新增阶段 |
+| 阶段 2 (双向回溯) | R3 | 增加跨边界 sink 终结 + verify_queue 状态机 |
+| 阶段 3 (量化报告) | 最终报告 | 公式重做,区分 L0/L1/L2,新增 Sink Discovery Rate |
+| 阶段 4 (业务逻辑深钻) | R4 | 假说从自由 3~5 个改为固化 6 类必选 |
+| — | 平台兼容层 | 新增,双平台适配 |
