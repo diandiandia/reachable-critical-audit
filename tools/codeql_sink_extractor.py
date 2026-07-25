@@ -120,7 +120,19 @@ LANG_SECURITY_PATHS: dict[str, list[str]] = {
     "kotlin": [
         "kotlin/ql/lib/codeql/kotlin/security",
     ],
-    # shell/perl/powershell 暂无独立 security 目录，用通用 fallback
+    "scala": [
+        "scala/ql/lib/codeql/scala/security",
+        "java/ql/lib/semmle/code/java/security",
+    ],
+    "shell": [
+        "shell/ql/lib/codeql/shell/security",
+    ],
+    "perl": [
+        "perl/ql/lib/codeql/perl/security",
+    ],
+    "powershell": [
+        "powershell/ql/lib/codeql/powershell/security",
+    ],
 }
 
 # CWE 关键字 → (cwe_id, category, filename_patterns)

@@ -310,24 +310,41 @@ class ASTCoarseScanner:
         return {"cwe_id": "Unknown", "category": "General Sink"}
 
 if __name__ == "__main__":
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    profile_path = os.path.join(script_dir, "../resources/security_profiles.json")
+
     # REQ-03: R0 AST 物理工具强制 self-check 支持
     if len(sys.argv) > 1 and sys.argv[1] == "--self-check":
-        if HAS_TREE_SITTER:
-            res = {
-                "status": "ok",
-                "has_tree_sitter": True,
-                "version": getattr(tree_sitter, "__version__", "available")
-            }
-            print(json.dumps(res))
-            sys.exit(0)
-        else:
-            res = {
-                "status": "error",
-                "has_tree_sitter": False,
-                "message": "tree_sitter or tree_sitter_languages package not installed in environment"
-            }
-            print(json.dumps(res))
-            sys.exit(1)
+        profile_ok = os.path.exists(profile_path)
+        profile_langs = []
+        wrapper_langs = []
+        total_rules_count = 0
+        empty_ast_count = 0
+        if profile_ok:
+            try:
+                with open(profile_path, 'r', encoding='utf-8') as pf:
+                    pdata = json.load(pf)
+                profile_langs = list(pdata.get("rules", {}).keys())
+                wrapper_langs = list(pdata.get("wrapper_detection", {}).keys())
+                for r_list in pdata.get("rules", {}).values():
+                    total_rules_count += len(r_list)
+                    for r in r_list:
+                        if not r.get("sinks", {}).get("ast_patterns"):
+                            empty_ast_count += 1
+            except Exception:
+                profile_ok = False
+
+        res = {
+            "status": "ok",
+            "has_tree_sitter": HAS_TREE_SITTER,
+            "profile_loaded": profile_ok,
+            "configured_languages": profile_langs,
+            "wrapper_detection_languages": [l for l in wrapper_langs if not l.startswith("_")],
+            "total_rules": total_rules_count,
+            "ast_patterns_coverage_pct": round((1 - empty_ast_count / total_rules_count) * 100, 1) if total_rules_count else 0
+        }
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        sys.exit(0 if profile_ok else 1)
 
     workspace = sys.argv[1] if len(sys.argv) > 1 else "."
     output_dir = sys.argv[2] if len(sys.argv) > 2 else workspace

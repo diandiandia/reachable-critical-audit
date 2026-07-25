@@ -601,7 +601,9 @@
           "regex": [
             "realpath\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(realpath|strcpy|wcscpy|sprintf)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -1996,7 +1998,9 @@
             "passthru\\(",
             "popen\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (name) @func (#match? @func \"^(exec|system|shell_exec|passthru|proc_open|popen)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2017,7 +2021,9 @@
             "assert\\(",
             "create_function\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (name) @func (#match? @func \"^(eval|assert|create_function|include|require)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2037,7 +2043,10 @@
             "PDO::query\\(",
             "\\->query\\(.*\\$.*\\)"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(member_call_expression name: (name) @name (#match? @name \"^(query|exec|execute|prepare)$\"))",
+            "(call_expression function: (name) @func (#match? @func \"^(mysqli_query|pg_query)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2059,7 +2068,9 @@
             "include\\(",
             "require\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (name) @func (#match? @func \"^(file_get_contents|readfile|fopen|file|include|require)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2078,7 +2089,9 @@
             "curl_exec\\(",
             "file_get_contents\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (name) @func (#match? @func \"^(curl_exec|file_get_contents|get_headers)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2097,7 +2110,10 @@
             "echo\\s+\\$.*",
             "print\\s+\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(echo_statement) @echo",
+            "(print_intrinsic) @print"
+          ]
         },
         "sources": {
           "regex": [
@@ -2115,7 +2131,9 @@
           "regex": [
             "move_uploaded_file\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (name) @func (#match? @func \"^(move_uploaded_file|copy)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2132,7 +2150,9 @@
           "regex": [
             "unserialize\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (name) @func (#match? @func \"^(unserialize)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2150,7 +2170,9 @@
           "regex": [
             "header\\(['\"]Location:"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (name) @func (#match? @func \"^(header)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2168,7 +2190,9 @@
             "UPDATE\\s+.*WHERE",
             "DELETE\\s+.*WHERE"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(member_call_expression name: (name) @name (#match? @name \"^(update|delete|save)$\"))"
+          ]
         },
         "verification_logic": "验证当前修改/删除数据的逻辑中，是否缺失了对于被操作记录的 owner 与当前 session 用户 ID 的相等比对校验。",
         "sources": {
@@ -2243,7 +2267,10 @@
             "IO\\.popen\\(",
             "Open3\\.popen3\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(system|exec|popen)$\"))",
+            "(subshell) @subshell"
+          ]
         },
         "sources": {
           "regex": [
@@ -2262,7 +2289,9 @@
             "instance_eval\\(",
             "class_eval\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(eval|instance_eval|class_eval|module_eval)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2280,7 +2309,9 @@
             "connection\\.execute\\(",
             "\\.where\\(\".*#\\{.*\\}\"\\)"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(execute|where|find_by_sql)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2299,7 +2330,9 @@
             "File\\.read\\(",
             "IO\\.read\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(open|read|readlines|write)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2317,7 +2350,9 @@
             "Net::HTTP\\.get\\(",
             "open\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(get|post|request|open)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2334,7 +2369,9 @@
           "regex": [
             "\\.html_safe"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(html_safe|raw)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2352,7 +2389,9 @@
             "Marshal\\.load\\(",
             "YAML\\.load\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(load|restore|unserialize)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2369,7 +2408,9 @@
           "regex": [
             "redirect_to\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(redirect_to)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2387,7 +2428,9 @@
             "\\.update\\(",
             "\\.destroy\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(update|destroy|delete)$\"))"
+          ]
         },
         "verification_logic": "验证当前更新或删除控制器的逻辑体中，是否确实在执行前比对了当前 session 用户的 ID 权限。",
         "sources": {
@@ -2406,7 +2449,9 @@
             "Digest::MD5",
             "Digest::SHA1"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @func (#match? @func \"^(hexdigest|digest)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2478,7 +2523,9 @@
             "Process\\(\\)",
             "posix_spawn"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(Process|posix_spawn|system)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2496,7 +2543,9 @@
             "FileHandle\\(forReadingAtPath:",
             "FileManager\\.default\\.contents\\(atPath:"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (member_expression title: (identifier) @fn (#match? @fn \"^(contents|data)$\")))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2513,7 +2562,9 @@
           "regex": [
             "URLSession\\.shared\\.dataTask\\(with:"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (member_expression property: (property_identifier) @fn (#match? @fn \"^(dataTask|uploadTask)$\")))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2531,7 +2582,9 @@
             "UnsafeMutablePointer",
             "withUnsafeBytes"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(withUnsafeBytes|withUnsafeMutableBytes|from_raw_parts)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2549,7 +2602,9 @@
             "CC_MD5",
             "CC_SHA1"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(CC_MD5|CC_SHA1)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2566,7 +2621,9 @@
           "regex": [
             "loadHTMLString\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(loadHTMLString)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2583,7 +2640,9 @@
           "regex": [
             "SecKeyRawSign"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(SecKeyRawSign|SecKeyCreateSignature)$\"))"
+          ]
         },
         "verification_logic": "验证当前进行证书或公私钥签名验证的代码块中，是否包含防重放与属主合法性比对。",
         "sources": {
@@ -2601,7 +2660,9 @@
           "regex": [
             "allowInvalidCertificates\\s*=\\s*true"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(assignment_expression left: (member_expression property: (property_identifier) @prop (#eq? @prop \"allowInvalidCertificates\")))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2618,7 +2679,9 @@
           "regex": [
             "print\\(error"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(print|NSLog)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2635,7 +2698,9 @@
           "regex": [
             "UserDefaults\\.standard\\.set"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (member_expression property: (property_identifier) @prop (#eq? @prop \"set\")))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2837,7 +2902,9 @@
             "response\\.writer\\.write",
             "response\\.outputStream\\.print"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(write|print|println)$\")))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2855,7 +2922,9 @@
           "regex": [
             "DocumentBuilderFactory\\.newInstance"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(newInstance|parse)$\")))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2875,7 +2944,9 @@
             "\\.update\\(",
             "saveAndFlush\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(delete|update|saveAndFlush)$\")))"
+          ]
         },
         "verification_logic": "验证在 Kotlin 对应的 Spring / Ktor 框架的写控制器中，是否包含对当前登录用户 Session ID 与数据所有者 ID 的安全核对逻辑。",
         "sources": {
@@ -2894,7 +2965,9 @@
             "\\.transferTo\\(",
             "Files\\.write\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(transferTo|write)$\")))"
+          ]
         },
         "sources": {
           "regex": [
@@ -2912,7 +2985,9 @@
             "MessageDigest\\.getInstance\\(\"MD5\"\\)",
             "MessageDigest\\.getInstance\\(\"SHA-1\"\\)"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(getInstance)$\")))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3008,7 +3083,9 @@
             "\\.!\n",
             "\\.!!\n"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(Process|exec)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3027,7 +3104,9 @@
             "SQL\\(\".*#\\{.*\\}\"\\)",
             "connection\\.createStatement\\(\\)\\.execute"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(SQL|execute|executeQuery)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3045,7 +3124,9 @@
             "new File\\(",
             "Source\\.fromFile\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(fromFile|open|read)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3063,7 +3144,9 @@
             "Http\\(url\\)",
             "new URL\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(Http|URL)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3080,7 +3163,9 @@
           "regex": [
             "readObject\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(readObject)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3098,7 +3183,9 @@
             "response\\.writer\\.write",
             "Html\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(Html|write)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3115,7 +3202,9 @@
           "regex": [
             "XML\\.loadString\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(loadString|load)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3133,7 +3222,9 @@
             "\\.update\\(",
             "\\.delete\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(update|delete|save)$\"))"
+          ]
         },
         "verification_logic": "验证 Scala Play / Akka HTTP 框架写操作入口中，是否缺乏当前 Session 用户对该条记录的属主鉴权校验。",
         "sources": {
@@ -3151,7 +3242,9 @@
           "regex": [
             "Files\\.write\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(write|transferTo)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3168,7 +3261,9 @@
           "regex": [
             "MessageDigest\\.getInstance\\(\"MD5\"\\)"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(getInstance)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3265,7 +3360,9 @@
             "bash\\s+-c\\s+\\$.*",
             "\\$\\(.*\\$.*\\)"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_name) @name (#match? @name \"^(eval|sh|bash|zsh)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3287,7 +3384,9 @@
             "rm\\s+-rf\\s+\\$.*",
             "mv\\s+.*\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_name) @name (#match? @name \"^(cat|rm|mv|cp)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3307,7 +3406,9 @@
             "sudo\\s+.*\\$.*",
             "su\\s+-c\\s+.*\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_name) @name (#match? @name \"^(sudo|su)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3326,7 +3427,9 @@
             "chmod\\s+777",
             "chmod\\s+a\\+w"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_name) @name (#match? @name \"^(chmod|chown)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3343,7 +3446,9 @@
           "regex": [
             "echo\\s+.*\\s*>>\\s*~/.ssh/authorized_keys"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(file_redirect) @redirect"
+          ]
         },
         "sources": {
           "regex": [
@@ -3361,7 +3466,9 @@
             "openssl\\s+enc\\s+-des",
             "openssl\\s+enc\\s+-rc4"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_name) @name (#match? @name \"^(openssl)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3378,7 +3485,9 @@
           "regex": [
             ":\\(\\)\\{:\\|:&\\};:"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_definition) @func"
+          ]
         },
         "sources": {
           "regex": [
@@ -3396,7 +3505,9 @@
             "echo\\s+\\$password",
             "printenv\\s+SECRET"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_name) @name (#match? @name \"^(echo|printenv)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3416,7 +3527,9 @@
             "curl\\s+.*--insecure",
             "wget\\s+.*--no-check-certificate"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_name) @name (#match? @name \"^(curl|wget)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3434,7 +3547,9 @@
             "curl\\s+\\$.*",
             "wget\\s+\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_name) @name (#match? @name \"^(curl|wget)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3530,7 +3645,9 @@
             "qx/.*\\$.*/",
             "open\\(.*\\|.*\\)"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call function: (identifier) @func (#match? @func \"^(system|exec|qx)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3548,7 +3665,9 @@
           "regex": [
             "eval\\s+\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call function: (identifier) @func (#match? @func \"^(eval)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3566,7 +3685,9 @@
             "\\$dbh\\->do\\(",
             "\\$dbh\\->prepare\\(.*\\$.*\\)"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_call method: (identifier) @method (#match? @method \"^(do|prepare|execute)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3583,7 +3704,9 @@
           "regex": [
             "open\\(.*<.*\\$.*\\)"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call function: (identifier) @func (#match? @func \"^(open|read)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3600,7 +3723,9 @@
           "regex": [
             "print\\s+\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call function: (identifier) @func (#match? @func \"^(print|say)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3617,7 +3742,9 @@
           "regex": [
             "LWP::UserAgent\\->new\\(\\)->get\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_call method: (identifier) @method (#match? @method \"^(get|post|request)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3635,7 +3762,9 @@
             "UPDATE\\s+.*WHERE",
             "DELETE\\s+.*WHERE"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_call method: (identifier) @method (#match? @method \"^(update|delete)$\"))"
+          ]
         },
         "verification_logic": "验证对于记录的写/删动作中，逻辑中是否完全缺失了对于当前 session 用户与被操作数据的 owner 相等性比对。",
         "sources": {
@@ -3653,7 +3782,9 @@
           "regex": [
             "Digest::MD5"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call function: (identifier) @func (#match? @func \"^(md5|sha1)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3671,7 +3802,9 @@
             "warn\\s+\\$.*",
             "die\\s+\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call function: (identifier) @func (#match? @func \"^(warn|die)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3688,7 +3821,9 @@
           "regex": [
             "ssl_opts\\s*=>\\s*.*verify_hostname\\s*=>\\s*0"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(hash) @hash"
+          ]
         },
         "sources": {
           "regex": [
@@ -3782,7 +3917,9 @@
             "iex\\s+\\$.*",
             "Start-Process\\s+.*-FilePath\\s+\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_elements) @name (#match? @name \"^(Invoke-Expression|iex|Start-Process)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3801,7 +3938,9 @@
             "Get-Content\\s+\\$.*",
             "Remove-Item\\s+\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_elements) @name (#match? @name \"^(Get-Content|Remove-Item)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3819,7 +3958,9 @@
             "Invoke-WebRequest\\s+.*-Uri\\s+\\$.*",
             "Invoke-RestMethod\\s+.*-Uri\\s+\\$.*"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_elements) @name (#match? @name \"^(Invoke-WebRequest|Invoke-RestMethod)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3836,7 +3977,9 @@
           "regex": [
             "Start-Process\\s+.*-Verb\\s+RunAs"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_elements) @name (#match? @name \"^(Start-Process)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3853,7 +3996,9 @@
           "regex": [
             "Set-Acl\\s+.*-AclObject"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_elements) @name (#match? @name \"^(Set-Acl)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3870,7 +4015,9 @@
           "regex": [
             "ServerCertificateValidationCallback\\s*=\\s*\\{\\s*\\$true\\s*\\}"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(script_block) @block"
+          ]
         },
         "sources": {
           "regex": [
@@ -3887,7 +4034,9 @@
           "regex": [
             "\\[System\\.Security\\.Cryptography\\.MD5\\]"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(member_access_expression) @expr"
+          ]
         },
         "sources": {
           "regex": [
@@ -3905,7 +4054,9 @@
             "Write-Host\\s+\\$password",
             "Write-Debug\\s+\\$password"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_elements) @name (#match? @name \"^(Write-Host|Write-Debug)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -3923,7 +4074,9 @@
             "Set-Content",
             "Clear-Content"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_elements) @name (#match? @name \"^(Set-Content|Clear-Content)$\"))"
+          ]
         },
         "verification_logic": "验证当前修改/覆盖敏感文件的脚本块中，是否缺乏对当前执行会话主体的角色鉴权条件校验。",
         "sources": {
@@ -3941,7 +4094,9 @@
           "regex": [
             "Export-Clixml\\s+.*-Path"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(command name: (command_elements) @name (#match? @name \"^(Export-Clixml)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -4577,6 +4732,100 @@
       "async_ownership": [
         "tokio::spawn",
         "Arc::clone"
+      ]
+    },
+    "csharp": {
+      "db_wrappers": [
+        "FromSqlRaw",
+        "ExecuteSqlRaw",
+        "SqlCommand",
+        "Dapper.Query"
+      ],
+      "process_wrappers": [
+        "Process.Start",
+        "ProcessStartInfo"
+      ],
+      "ipc_sinks": [
+        "NamedPipeServerStream",
+        "HttpClient.SendAsync"
+      ]
+    },
+    "ruby": {
+      "orm_wrappers": [
+        "find_by_sql",
+        "where_values_hash",
+        "ActiveRecord::Base.connection.execute"
+      ],
+      "cmd_wrappers": [
+        "system",
+        "exec",
+        "Open3.capture3"
+      ]
+    },
+    "swift": {
+      "ipc_sinks": [
+        "URLSession.dataTask",
+        "Process.run"
+      ],
+      "db_wrappers": [
+        "sqlite3_exec",
+        "NSPredicate(format:)"
+      ]
+    },
+    "kotlin": {
+      "sql_wrappers": [
+        "rawQuery",
+        "execSQL",
+        "Room.databaseBuilder"
+      ],
+      "ipc_sinks": [
+        "ContentResolver",
+        "Intent"
+      ]
+    },
+    "scala": {
+      "db_wrappers": [
+        "sql\"...\"",
+        "Slick.run",
+        "DBIOAction"
+      ],
+      "actor_patterns": [
+        "ActorRef.tell",
+        "Akka.pattern.ask"
+      ]
+    },
+    "shell": {
+      "wrapper_funcs": [
+        "run_cmd",
+        "exec_as_user",
+        "sudo_exec"
+      ],
+      "eval_wrappers": [
+        "eval",
+        "bash -c"
+      ]
+    },
+    "perl": {
+      "db_wrappers": [
+        "DBI->connect",
+        "$dbh->do",
+        "$dbh->prepare"
+      ],
+      "cmd_wrappers": [
+        "system",
+        "exec",
+        "open3"
+      ]
+    },
+    "powershell": {
+      "cmd_wrappers": [
+        "Invoke-Expression",
+        "Invoke-Command",
+        "Start-Process"
+      ],
+      "script_wrappers": [
+        "ScriptBlock::Create",
+        "New-Object System.Diagnostics.Process"
       ]
     }
   },
