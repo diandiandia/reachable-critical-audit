@@ -243,12 +243,13 @@ class ASTCoarseScanner:
                     is_rust_unsafe = (lang == "rust" and cwe_id in ("CWE-119", "CWE-416", "CWE-787"))
                     rust_exempted = False
                     if is_rust_unsafe:
-                        start = max(0, line_idx - 3)
+                        start = max(0, line_idx - 8)
                         end = min(len(lines), line_idx + 3)
                         for ctx_line in lines[start:end]:
                             stripped = ctx_line.strip()
                             if stripped.startswith("// Safety:") or stripped.startswith("# Safety:") or \
-                               stripped.startswith("// SAFETY:") or stripped.startswith("// safety:"):
+                               stripped.startswith("// SAFETY:") or stripped.startswith("// safety:") or \
+                               stripped.startswith("/* Safety:") or stripped.startswith("/* SAFETY:"):
                                 rust_exempted = True
                                 break
                     
