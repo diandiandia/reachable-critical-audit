@@ -320,6 +320,7 @@ if __name__ == "__main__":
     results = scanner.scan(workspace)
     
     # 写入待验证队列
+    os.makedirs(output_dir, exist_ok=True)
     queue_path = os.path.join(output_dir, "verify_queue.json")
     with open(queue_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
