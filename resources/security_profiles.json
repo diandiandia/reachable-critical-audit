@@ -343,7 +343,8 @@
         "codeql_model": "semmle.code.cpp.security.UseAfterFree",
         "sinks": {
           "regex": [
-            "free"
+            "\\bfree\\s*\\(",
+            "\\brelease\\s*\\(.*\\)\\s*;\\s*\\w+\\s*="
           ],
           "ast_patterns": [
             "(call_expression function: (identifier) @func (#eq? @func \"free\"))"
@@ -429,11 +430,14 @@
       {
         "cwe_id": "CWE-476",
         "category": "NullPointerDereference",
-        "type": "TAINT_ANALYSIS",
+        "type": "PROPERTY_CHECK",
         "codeql_model": "semmle.code.cpp.security.NullPointerDereference",
         "sinks": {
           "regex": [
-            "\\*[a-zA-Z_]"
+            "if\\s*\\(\\s*\\*\\w+\\s*==\\s*NULL\\)",
+            "\\*\\w+\\s*=\\s*\\*?\\w+\\s*;.*\\bNULL\\b",
+            "if\\s*\\(\\s*!\\s*\\w+\\s*\\).*\\*\\w+",
+            "NULL\\s*==\\s*\\w+|NULL\\s*!=\\s*\\w+"
           ],
           "ast_patterns": [
             "(pointer_expression) @ptr"
@@ -444,7 +448,8 @@
             "malloc",
             "calloc"
           ]
-        }
+        },
+        "verification_logic": "检查指针解引用前是否有 NULL 检查。如果函数入口未检查且后续有解引用，判定为候选。"
       },
       {
         "cwe_id": "CWE-190",
@@ -453,8 +458,10 @@
         "codeql_model": "semmle.code.cpp.security.IntegerOverflow",
         "sinks": {
           "regex": [
-            "malloc",
-            "memcpy"
+            "\\b(malloc|calloc|realloc)\\s*\\(\\s*\\w+\\s*\\*\\s*\\w+",
+            "\\brealloc\\s*\\(\\s*\\w+\\s*,\\s*\\w+\\s*\\*\\s*\\w+",
+            "memcpy\\s*\\(.*,\\s*.*,\\s*\\w+\\s*\\*\\s*\\w+\\s*\\)",
+            "\\w+\\s*\\+\\s*\\w+\\s*>\\s*INT_MAX|\\w+\\s*\\*\\s*\\w+\\s*>\\s*INT_MAX"
           ],
           "ast_patterns": [
             "(call_expression function: (identifier) @func (#match? @func \"^(malloc|memcpy)$\") arguments: (argument_list (binary_expression operator: \"*\") @expr))"
@@ -531,7 +538,8 @@
             "params"
           ]
         },
-        "verification_logic": "验证当前控制器方法或全局配置中是否启用了 CSRF 防御机制（如 CSRF Token 验证、SameSite Cookie 校验）。若无任何 CSRF 校验，判定为逻辑漏洞。"
+        "verification_logic": "验证当前控制器方法或全局配置中是否启用了 CSRF 防御机制（如 CSRF Token 验证、SameSite Cookie 校验）。若无任何 CSRF 校验，判定为逻辑漏洞。",
+        "notes": "CSRF patterns are web-app specific; for C projects these produce excessive noise. Matches function identifiers containing post/put/delete."
       },
       {
         "cwe_id": "CWE-601",
@@ -581,7 +589,8 @@
             "params"
           ]
         },
-        "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。"
+        "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。",
+        "notes": "admin/manage/delete/update match function name substrings in C — high noise. Prioritize other CWEs for C/C++ projects."
       },
       {
         "cwe_id": "CWE-787",

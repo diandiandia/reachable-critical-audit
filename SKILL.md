@@ -50,7 +50,7 @@ Skill 启动后**第一步必须**执行以下三件事，任何一步失败即 
    {"mode": "A_NATIVE_ANTIGRAVITY|A_NATIVE_OPENCODE|B_ANTIGRAVITY_CLI",
     "reason": "...", "detected_at": "ISO8601"}
    ```
-3. **目录守卫（REQ-12 前置守卫）**：`mkdir -p .audit_results/`，所有后续产物（`verify_queue.json` / `extended_sinks.json` / `extended_profile.json` / `execution_mode.json` / `reachable_vulnerabilities_report.{md,json}` / `architecture_view.json`）路径必须以 `.audit_results/` 为前缀。任何对项目源码根目录的直接报告写入视为流程违规，立即终止。同时初始化空的 `verify_queue.json`：
+3. **目录守卫（REQ-12 前置守卫）**：`mkdir -p .audit_results/`，所有后续产物（`verify_queue.json` / `extended_sinks.json` / `extended_profile.json` / `execution_mode.json` / `reachable_vulnerabilities_report.{md,json}` / `architecture_view.json`）路径必须以 `.audit_results/` 为前缀。任何对项目源码根目录的直接报告写入视为流程违规，立即终止。同时初始化空的 `verify_queue.json`。**R3 阶段开始时，如果 `.audit_results/verify_queue.json` 不存在或其 `candidates` 为空数组，禁止进入 R3，须回退到 R1 重新扫描。**
    ```json
    {"schema_version": "2.0", "candidates": []}
    ```
@@ -237,7 +237,14 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
    - 若强制参数化(? 占位 + 绑定) → 阻断, UNREACHABLE
 4. 调用链中遇到无法绕过的强类型转换/白名单/参数化绑定/if (offset+N>p_pkt_end) 显式边界检查
    → verdict=UNREACHABLE, 记录 blocking_point file:line
-5. 若无法明确判定 → verdict=NEEDS_REVIEW (不允许默认判定)
+5. **C/C++ 路径覆盖要求**（减少状态机误判）:
+   - 对每个 Sink 点, 列出所有到达该点的调用路径（可能有多个 Caller）
+   - 对每条路径上的边界检查 `if (offset+N > p_pkt_end)` 或类似校验:
+     - 验证检查范围是否覆盖攻击者可控制的所有入参维度
+     - 如果入参维度多于检查维度 → 路径仍然 REACHABLE
+   - 对状态机（switch/state machine）场景, 标注当前分析覆盖了哪些状态,
+     未覆盖的状态需注明可能遗漏
+6. 若无法明确判定 → verdict=NEEDS_REVIEW (不允许默认判定)
 
 输出格式(强制 JSON, 不要其他文字):
 {

@@ -238,7 +238,21 @@ class ASTCoarseScanner:
                     matched_rule = self._find_rule_by_regex(lang_rules, raw_pat)
                     cwe_id = matched_rule.get("cwe_id")
 
-                    # Optimization 1: 初筛漏斗过滤优化
+                    # Optimization 1: Rust unsafe 安全注释豁免
+                    # 如果 unsafe 调用行附近有 Safety 注释，标记为 NEEDS_REVIEW 而非 PENDING
+                    is_rust_unsafe = (lang == "rust" and cwe_id in ("CWE-119", "CWE-416", "CWE-787"))
+                    rust_exempted = False
+                    if is_rust_unsafe:
+                        start = max(0, line_idx - 3)
+                        end = min(len(lines), line_idx + 3)
+                        for ctx_line in lines[start:end]:
+                            stripped = ctx_line.strip()
+                            if stripped.startswith("// Safety:") or stripped.startswith("# Safety:") or \
+                               stripped.startswith("// SAFETY:") or stripped.startswith("// safety:"):
+                                rust_exempted = True
+                                break
+                    
+                    # Optimization 2: 初筛漏斗过滤优化
                     if cwe_id == "CWE-476" and lang == "cpp":
                         try:
                             match_ptr = re.search(r'\*([a-zA-Z_][a-zA-Z0-9_\->\.]*)', line)
@@ -261,6 +275,9 @@ class ASTCoarseScanner:
 
                     # REQ-03: 正则降级扫描产生的候选点标记 ast_verified=False，若无 AST 精确校验支撑则降级为 NEEDS_REVIEW 初始候选
                     status = "NEEDS_REVIEW" if (HAS_TREE_SITTER and matched_rule.get("sinks", {}).get("ast_patterns")) else "PENDING"
+                    # Rust unsafe 调用有 safety 注释时降级为 NEEDS_REVIEW（需人工复核）
+                    if rust_exempted and status == "PENDING":
+                        status = "NEEDS_REVIEW"
 
                     candidates.append({
                         "language": lang,
