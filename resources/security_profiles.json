@@ -4301,6 +4301,116 @@
           ]
         }
       }
+    ],
+    "go": [
+      {
+        "cwe_id": "CWE-918",
+        "category": "OCSPResponderSSRF",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "Traefik OCSP stapler CVE: TLS cert OCSP AIA URL from untrusted backend",
+        "sinks": {
+          "regex": [
+            "responder.*http\\.NewRequest|ocsp.*\\.Do\\(|OCSP.*Post\\(|\\.OCSPServer.*responder"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "leaf\\.OCSPServer|cert\\.OCSP|GetCertificate|tls\\.Certificate"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-400",
+        "category": "ForwardAuthUnlimitedBody",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "Traefik forward auth DoS: MaxBodySize/MaxResponseBodySize default -1",
+        "sinks": {
+          "regex": [
+            "MaxBodySize\\s*[:=]\\s*-1|MaxResponseBodySize\\s*[:=]\\s*-1|io\\.ReadAll\\(res\\.Body|ioutil\\.ReadAll\\(res\\.Body"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-295",
+        "category": "TLSVerifyNoExpiry",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "OWASP Go Security: VerifyPeerCertificate missing CurrentTime/KeyUsages",
+        "sinks": {
+          "regex": [
+            "VerifyPeerCertificate.*return.*nil|InsecureSkipVerify\\s*[:=]\\s*true"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-113",
+        "category": "GoCRLFHeaderInjection",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "OWASP Go: Header.Set with user input prior to Go 1.26",
+        "sinks": {
+          "regex": [
+            "Header\\.Set\\(.*,\\s*\\w+.*\\$|Header\\.Add\\(.*,\\s*\\w+.*\\$|WriteHeader\\(\\)"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "r\\.Header\\.Get|req\\.Header|r\\.URL\\.Query|cookie\\.Value"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "GoGenericSSRF",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL Go SSRF query: http.Get/Post/Do with user-controlled URL",
+        "sinks": {
+          "regex": [
+            "http\\.Get\\(|http\\.Post\\(|http\\.PostForm\\(|http\\.Head\\(|Client\\.Do\\(|Client\\.Get\\(|Client\\.Post\\("
+          ]
+        },
+        "sources": {
+          "regex": [
+            "r\\.URL|req\\.URL|r\\.FormValue|cookie|r\\.Header"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-78",
+        "category": "GoCommandInjection",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL Go CommandInjection: exec.Command with user input",
+        "sinks": {
+          "regex": [
+            "exec\\.Command|exec\\.CommandContext|os\\.StartProcess|syscall\\.Exec"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "gin\\.Context|http\\.Request|r\\.URL|r\\.FormValue|c\\.Param"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "GoSQLInjection",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "OWASP Go: ORM Raw()/Exec() with string concatenation",
+        "sinks": {
+          "regex": [
+            "\\.Raw\\(fmt\\.Sprintf|\\.Exec\\(fmt\\.Sprintf|\\.Query\\(fmt\\.Sprintf|\\.Raw\\(.*\\+.*\\)"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "r\\.URL|r\\.FormValue|req\\.Body|c\\.Param"
+          ]
+        }
+      }
     ]
   },
   "wrapper_detection": {
@@ -4379,11 +4489,52 @@
       ]
     },
     "go": {
-      "orm_wrappers": [
-        "db.*",
-        "*.Query",
-        "*.Exec",
-        "gorm.*"
+      "tls_cert_processing": [
+        "GetCertificate",
+        "GetClientCertificate",
+        "VerifyPeerCertificate",
+        "VerifyConnection",
+        "OCSP*",
+        "stapling",
+        "Staple"
+      ],
+      "reverse_proxy": [
+        "httputil.ReverseProxy",
+        "Transport.RoundTrip",
+        "Proxy.Connect",
+        "ServeHTTP",
+        "Director"
+      ],
+      "forward_auth": [
+        "ForwardAuth",
+        "ForwardAuthResponse",
+        "AuthResponseHeaders",
+        "AuthResponseHeadersRegex",
+        "MaxBodySize",
+        "ForwardBody"
+      ],
+      "http_middlewares": [
+        "Middleware",
+        "Negroni",
+        "HandlerFunc",
+        "ServeHTTP",
+        "responseModifier",
+        "requestModifier"
+      ],
+      "service_discovery": [
+        "Watcher",
+        "Resolver",
+        "HealthCheck",
+        "OnDemand",
+        "CheckInterval",
+        "Provider"
+      ],
+      "acme_autocert": [
+        "autocert.Manager",
+        "ACMECertificate",
+        "Let's Encrypt",
+        "HTTPChallenge",
+        "TLSChallenge"
       ]
     },
     "rust": {

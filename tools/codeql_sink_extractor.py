@@ -343,7 +343,7 @@ def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
         # 按 CWE 聚合 names
         cwe_to_names: dict[str, dict] = {}  # cwe_id -> {"category", "names": [...]}
         for qll in discover_qll_files(sec_root):
-                cwes = match_cwe_for_file(qll, lang)
+            cwes = match_cwe_for_file(qll, lang)
             if not cwes:
                 continue
             names = dedupe(extract_names_from_qll(qll))
