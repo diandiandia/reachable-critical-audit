@@ -90,22 +90,24 @@ R1 完成后必须执行（**强制触发条件**：R1 在项目主体语言上�
 
 `verify_queue.json` 中所有 `status=PENDING` 候选分批并发验证。每次 3~5 个子智能体（按平台兼容层选定的模式），单批完成立即落盘。
 
-**Mode A' (opencode `task` 工具) 分批验证示例**：
+**Mode A' (opencode `task` 工具) 分批验证——用 `batch_verify.py` 编排**：
 ```
-1. 读取 verify_queue.json，筛选 status="PENDING" 的候选列表
-2. 每批取 3~4 个候选，并发启动 task:
-   task(subagent_type="general",
-        description="vulnerability-verifier: CAND-001",
-        prompt=生成的任务书)
-   task(subagent_type="general",
-        description="vulnerability-verifier: CAND-002",
-        prompt=生成的任务书)
-   ...
-3. 每批所有 task 返回后，收集 verdict，更新 verify_queue.json 对应条目
-   (status=REACHABLE|UNREACHABLE|NEEDS_REVIEW, verdict, call_chain, 等)
-4. 立即写入磁盘（实时落盘）
-5. 循环下一批，直到所有候选 status != PENDING
-6. Assert: 无 PENDING 残留才能进 R4
+循环:
+  1. python3 tools/batch_verify.py <workspace> --stage next
+     → 输出下一批 3~4 个候选的任务书（含 file/line/CWE/自定义 prompt）
+  2. 对每个 task 并发执行:
+     task(subagent_type="general",
+          description="vulnerability-verifier: CAND-xxx",
+          prompt=<任务书中的 prompt 字段>)
+  3. 收集所有 task 返回的 JSON verdict
+  4. python3 tools/batch_verify.py <workspace> --stage collect \\
+       --batch <n> --cand-<num>='{"verdict":"REACHABLE",...}' ...
+     → 写入 verify_queue.json
+  5. python3 tools/batch_verify.py <workspace> --stage status
+     → 检查进度
+
+直到 python3 tools/batch_verify.py <workspace> --stage assert 通过
+(无 PENDING 残留，exit 0)
 ```
 
 ### 第一步：自底向上（Bottom-Up）追踪调用链
