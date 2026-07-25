@@ -37,6 +37,9 @@
 | **REQ-18** | 框架感知扩展 (R1.5 阶段) | P0 (Must Have) | 按 `wrapper_detection` 扫描项目自有 wrapper（如 `osi_*`、`STREAM_TO_*`、Android SQL），产出 `extended_sinks.json` 并入队。 |
 | **REQ-19** | 跨进程/跨 DSO 边界 sink 终结 | P0 (Must Have) | 调用链终止于 IPC/DSO/Provider 边界且对方参数为自由文本时，边界即 sink，标记 `REACHABLE_ACROSS_BOUNDARY`。 |
 | **REQ-20** | CodeQL 模型清洗工具与可重现更新 | P0 (Must Have) | 提供 `tools/codeql_sink_extractor.py`，从 CodeQL qll 文件提取 sink/source 写入 JSON，支持版本可重现。 |
+| **REQ-21** | Mode A' batch 调度器（新增） | P0 (Must Have) | 提供 `tools/batch_verify.py`，纯 Python 实现，不走 CLI 进程，支持 --stage next/collect/assert 循环，每批 3~4 个 task 并发验证。 |
+| **REQ-22** | Rust unsafe 安全注释豁免（新增） | P1 (Should Have) | `ast_scanner.py` 检查 Rust unsafe 调用相邻行是否有 `// SAFETY:` 注释，有则自动降级为 NEEDS_REVIEW。 |
+| **REQ-23** | Go 框架规则库（新增） | P1 (Should Have) | 向 `wrapper_detection.go` 和 `manual_additions.go` 注入 CodeQL/CVE/OWASP 衍生的 Go 框架特定 sink。 |
 
 ---
 
@@ -82,13 +85,13 @@
 ### REQ-08: 特权提升可利用性分析
 *   **详细描述**：针对 C/C++/Go/Python/Node.js 的特权切换 Sink（`setuid`/`seteuid`/`setgid`/`setegid`/`setresuid`/`setresgid`/`capng_*`/`prctl(PR_SET_UID)`等），必须验证：提权后的指令参数或文件路径是否仍混入提权前低特权用户可控的变量。若提权后动作完全由硬编码参数控制，判定 `UNREACHABLE`；若提权后动作参数可被低特权用户影响，判定 `REACHABLE`。Android Bluetooth 等系统服务同样适用：蓝牙守护进程运行于 `android.uid.bluetooth` (1002)，任何能让该 UID 执行特权动作的远端输入都按提权对待。
 
-### REQ-09: verify_queue 状态机与 Schema 标准化
+### REQ-09: verify_queue 状态机与断点硬校验 + batch 调度器
 *   **详细描述**：候选清单必须以状态机形式落盘到 `.audit_results/verify_queue.json`，**绝不允许只在内存中维护**：
     1.  **入队 Schema**：每个候选节点包含规范字段：`{id, origin("L0"/"L1"/"L2"/"R4"), source_file, source_line, sink_type, status("PENDING"/"VERIFIED"), verdict, reachability_type, blocking_point}`。
-    2.  **分批并发/串行研判**：按 REQ-01 选定的执行模式分批研判，单批完成后**立即落盘**。
+    2.  **分批并发/串行研判**：按 REQ-01 选定的执行模式分批研判。Mode A' 使用 `tools/batch_verify.py` 调度：`--stage next` 输出下一批任务书 → task 并发验证 → `--stage collect` 写回队列 → 循环直至 `--stage assert` 通过。单批完成后**立即落盘**。
     3.  **状态机**：`PENDING → VERIFIED → {REACHABLE | UNREACHABLE | NEEDS_REVIEW}`；子智能体返回模糊或拒绝回答时强制 `NEEDS_REVIEW`，不允许默认判定。
     4.  **断点续传**：二次启动读取 `verify_queue.json`，跳过已 `VERIFIED` 的节点，只处理 `PENDING`。
-    5.  **Assert 兜底**：报告生成前必须 Assert，存在 `PENDING` 节点则 `exit(2)` 强制中断，杜绝跳过。`NEEDS_REVIEW` 节点必须在报告中显式列出，不允许静默丢弃。
+    5.  **Assert 兜底**：报告生成前 `batch_verify.py --stage assert` 必须通过（exit 0），存在 `PENDING` 节点则 `exit(2)` 强制中断。`NEEDS_REVIEW` 节点必须在报告中显式列出。
 
 ### REQ-10: 审计漏斗量化度量 (L0/L1/L2 区分)
 *   **详细描述**：量化公式分母必须为 `(R1 + R1.5 + R4)` 候选总数，分子按来源标记 `origin` 字段：

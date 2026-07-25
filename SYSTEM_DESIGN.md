@@ -76,7 +76,7 @@ pre-v2 的双轨制保留并强化：
 | 模式 | 平台 | 编排原语 | Subagent 类型 | 探测条件 |
 | :--- | :--- | :--- | :--- | :--- |
 | **Mode A** | Antigravity | `define_subagent` + `invoke_subagent` | `vulnerability-verifier` / `business-logic-verifier` / `framework-sink-extractor` | 工具列表含 `define_subagent` 或 `REACHABLE_AUDIT_MODE=native` |
-| **Mode A'** | opencode 等 | `task(subagent_type="general"/"explore")` | 通用子智能体（task 的 description + prompt 承载角色） | 工具列表含 `task` 或 `OPENCODE=1`，或 Mode A 不可用 |
+| **Mode A'** | opencode 等 | `task(subagent_type="general"/"explore")` + `tools/batch_verify.py` 编排 | 通用子智能体 + batch 调度器（纯 Python，不依赖 `agy`） | 工具列表含 `task` 或 `OPENCODE=1`，或 Mode A 不可用 |
 | **Mode A''** | Claude Code 等 | 主 Agent 单进程本地串行研判 (`grep_search`/`view_file`) | 无子智能体（主进程遍历 `verify_queue` 串行研判） | 既无 `define_subagent` 也无 `task` 工具，且 CLI 不可用 |
 | **Mode B** | Antigravity CLI | `run_workflow.js` + `agy` spawn | 子进程 agy 会话 | `node run_workflow.js --check-availability` 返回 Mode B；ENOENT 返回 `AGENT_NATIVE_FALLBACK` 切回 Mode A' 或 Mode A'' |
 
@@ -307,9 +307,13 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
           ]
         }
         ```
-    *   分批并发：每批 3~5 子智能体，单批完成立即落盘。
-    *   断点续传：二次启动跳过 `VERIFIED`。
-    *   Assert 兜底：报告前若存在 `PENDING` → `exit(2)`；`NEEDS_REVIEW` 必须在报告显式列出。
+     *   分批并发：每批 3~5 子智能体，单批完成立即落盘。Mode A' 使用 `tools/batch_verify.py`：
+         - `--stage next`：输出下一批候选（含 task prompt），不修改队列状态
+         - `--stage collect`：从 task 返回值更新队列，写回磁盘
+         - `--stage assert`：检查无 PENDING 残留（exit 0=通过，exit 2=失败）
+         - `--stage status`：打印队列进度摘要
+     *   断点续传：二次启动跳过 `VERIFIED`。
+     *   Assert 兜底：报告前必须 `batch_verify.py --stage assert` 通过；`NEEDS_REVIEW` 必须在报告显式列出。
 
 ### REQ-10: 审计漏斗量化度量 (L0/L1/L2 区分)
 *   **设计实现**：
