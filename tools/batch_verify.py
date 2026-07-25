@@ -118,11 +118,13 @@ def stage_collect(project_root, batch_id, verdicts):
             continue
 
         entry = cand_map[cand_id]
-        entry["status"] = v["verdict"]
+        entry["status"] = "VERIFIED"
+        entry["verdict"] = v["verdict"]
         entry["reachability_type"] = v.get("reachability_type")
         entry["call_chain"] = v.get("call_chain", [])
-        entry["verdict"] = v.get("evidence", "")
+        entry["evidence"] = v.get("evidence", "")
         entry["blocking_point"] = v.get("blocking_point")
+        entry["verified_at"] = __import__("datetime").datetime.now().isoformat()
         # Preserve CWE from rule if not overridden
         if v.get("cwe"):
             entry["cwe"] = v["cwe"]
@@ -148,7 +150,7 @@ def stage_assert(project_root):
     queue = load_queue(project_root)
     candidates = queue["candidates"]
     pending = [c for c in candidates if c.get("status") == "PENDING"]
-    needs_review = [c for c in candidates if c.get("status") == "NEEDS_REVIEW"]
+    needs_review = [c for c in candidates if c.get("verdict") == "NEEDS_REVIEW"]
 
     if pending:
         print(json.dumps({
@@ -159,8 +161,8 @@ def stage_assert(project_root):
         }))
         sys.exit(2)
 
-    reachable = [c for c in candidates if c.get("status") == "REACHABLE"]
-    unreachable = [c for c in candidates if c.get("status") == "UNREACHABLE"]
+    reachable = [c for c in candidates if c.get("verdict") == "REACHABLE"]
+    unreachable = [c for c in candidates if c.get("verdict") == "UNREACHABLE"]
 
     print(json.dumps({
         "status": "ASSERT_PASSED",
@@ -178,10 +180,13 @@ def stage_status(project_root):
     queue = load_queue(project_root)
     candidates = queue["candidates"]
     statuses = {}
+    verdicts = {}
     cwes = {}
     for c in candidates:
         s = c.get("status", "UNSET")
         statuses[s] = statuses.get(s, 0) + 1
+        v = c.get("verdict", "UNSET")
+        verdicts[v] = verdicts.get(v, 0) + 1
         cwe = c.get("cwe_id", "?")
         cwes[cwe] = cwes.get(cwe, 0) + 1
 
@@ -189,6 +194,7 @@ def stage_status(project_root):
         "status": "QUEUE_STATUS",
         "total": len(candidates),
         "by_status": statuses,
+        "by_verdict": verdicts,
         "by_cwe": dict(sorted(cwes.items(), key=lambda x: -x[1])[:15])
     }))
 
@@ -260,7 +266,13 @@ def _build_prompt(cand, ctx, project_root):
 2. 用 grep 反向查找调用链：Sink ← Caller_L1 ← Caller_L2 ← ... ← Source
 3. 分析参数是否外部可控，路径上是否有安全阻断（白名单/参数化/边界检查）
 4. 遇接口/抽象类，搜索所有实现类继续回溯
-5. 输出结论
+5. **跨边界 sink 终结 (REQ-19)**: 调用链到达以下边界时，边界即 sink:
+   - 跨进程 IPC: ContentResolver.query(selection 含拼接 OR selectionArgs=null) → REACHABLE_ACROSS_BOUNDARY; 强制 ? 占位 + 绑定 → UNREACHABLE
+   - Binder.transact / Intent extras 携带自由文本 → REACHABLE_ACROSS_BOUNDARY
+   - 跨 DSO: 外部动态库函数 + 自由文本参数 → REACHABLE_ACROSS_BOUNDARY
+   - 跨 Provider authority: URI authority 切换到第三方 ContentProvider → 同 ContentResolver 规则
+6. **特权提升 (REQ-08)**: setuid/setegid/capng_*/prctl 等特权切换后，若指令参数仍混入低特权用户可控变量 → REACHABLE
+7. 输出结论
 
 """
     prompt += """## 输出格式（强制 JSON，不要其他文字）

@@ -417,9 +417,11 @@ def merge_into_profiles(
 
     # 同时合并 manual_additions 段(若用户已手工填的 CWE 也不在 CodeQL 提取中)
     for lang, manual_entries in profile.get("manual_additions", {}).items():
+        if lang.startswith("_") or not isinstance(manual_entries, list):
+            continue
         existing_cwes = {e.get("cwe_id") for e in rules.get(lang, [])}
         for entry in manual_entries:
-            if entry.get("cwe_id") not in existing_cwes:
+            if isinstance(entry, dict) and entry.get("cwe_id") not in existing_cwes:
                 rules.setdefault(lang, []).append(entry)
                 existing_cwes.add(entry.get("cwe_id"))
 

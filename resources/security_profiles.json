@@ -280,6 +280,31 @@
           ]
         },
         "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。"
+      },
+      {
+        "cwe_id": "CWE-20",
+        "category": "CrossBoundaryTrustViolation",
+        "type": "PROPERTY_CHECK",
+        "source_reason": "新模型: 跨进程信任边界破坏. Android Bluetooth MAP 把拼字符串 selection 透传给外部 Provider 时 selectionArgs=null",
+        "sinks": {
+          "regex": [
+            "ContentResolver\\.query\\s*\\(",
+            "ContentResolver\\.notifyChange\\s*\\(",
+            "Binder\\.transact\\s*\\(",
+            "broadcastIntent",
+            "sendBroadcast"
+          ],
+          "ast_patterns": []
+        },
+        "verification_logic": "判定规则: 调用 ContentResolver.query/Binder.transact/Intent extras 时, 若 free-text 参数(如 selection)含字符串拼接 AND 参数化字段(如 selectionArgs)缺省为 null, 判定 REACHABLE_ACROSS_BOUNDARY; 若强制参数化(? 占位 + 绑定), 阻断 UNREACHABLE.",
+        "sources": {
+          "regex": [
+            "selection",
+            "where",
+            "command",
+            "args"
+          ]
+        }
       }
     ],
     "cpp": [
@@ -608,6 +633,78 @@
         "sources": {
           "regex": []
         }
+      },
+      {
+        "cwe_id": "CWE-789",
+        "category": "UncontrolledMemoryAllocation",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL C++ 库无 CWE-789 模型; Android Bluetooth 自有 allocator 必须 taint",
+        "sinks": {
+          "regex": [
+            "\\bosi_calloc\\s*\\(",
+            "\\bosi_malloc\\s*\\(",
+            "\\bosi_realloc\\s*\\(",
+            "\\bosi_free\\s*\\(",
+            "\\bcalloc\\s*\\(.*sizeof",
+            "\\bmalloc\\s*\\(.*sizeof",
+            "\\brealloc\\s*\\(.*sizeof",
+            "\\bnew\\s+\\w+\\["
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": [
+            "STREAM_TO_UINT8",
+            "STREAM_TO_UINT16",
+            "STREAM_TO_UINT32",
+            "UINT8_TO_STREAM",
+            "UINT16_TO_STREAM",
+            "UINT32_TO_STREAM",
+            "BE_STREAM_TO_UINT8",
+            "BE_STREAM_TO_UINT16",
+            "BE_STREAM_TO_UINT32",
+            "BE_UINT8_TO_STREAM",
+            "BE_UINT16_TO_STREAM",
+            "BE_UINT32_TO_STREAM",
+            "STREAM_TO_ARRAY",
+            "STREAM_SKIP_UINT8",
+            "STREAM_SKIP_UINT16",
+            "STREAM_SKIP_UINT32",
+            "PKT_LEN",
+            "p_buf->len",
+            "p_pkt->len",
+            "p_msg->len"
+          ]
+        }
+      },
+      {
+        "cwe_id": "CWE-125",
+        "category": "BufferRead",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL C++ BufferAccess 只覆盖写; 蓝牙栈 STREAM_TO_* 读越界是 CVE 高发类",
+        "sinks": {
+          "regex": [
+            "STREAM_TO_UINT8",
+            "STREAM_TO_UINT16",
+            "STREAM_TO_UINT32",
+            "BE_STREAM_TO_UINT8",
+            "BE_STREAM_TO_UINT16",
+            "BE_STREAM_TO_UINT32",
+            "STREAM_TO_ARRAY",
+            "\\*p\\s*\\+\\+",
+            "p\\s*\\+=\\s*\\d"
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": [
+            "p_pkt_end",
+            "p_cmd_end",
+            "p_reply_end",
+            "p_buf->len",
+            "p_pkt->len"
+          ]
+        }
       }
     ],
     "go": [
@@ -898,6 +995,36 @@
           ]
         },
         "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。"
+      },
+      {
+        "cwe_id": "CWE-295",
+        "category": "TLSVerifyNoExpiry",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "OWASP Go Security: VerifyPeerCertificate missing CurrentTime/KeyUsages",
+        "sinks": {
+          "regex": [
+            "VerifyPeerCertificate.*return.*nil|InsecureSkipVerify\\s*[:=]\\s*true"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-113",
+        "category": "GoCRLFHeaderInjection",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "OWASP Go: Header.Set with user input prior to Go 1.26",
+        "sinks": {
+          "regex": [
+            "Header\\.Set\\(.*,\\s*\\w+.*\\$|Header\\.Add\\(.*,\\s*\\w+.*\\$|WriteHeader\\(\\)"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "r\\.Header\\.Get|req\\.Header|r\\.URL\\.Query|cookie\\.Value"
+          ]
+        }
       }
     ],
     "python": [
@@ -1982,6 +2109,20 @@
           ]
         },
         "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。"
+      },
+      {
+        "cwe_id": "CWE-416",
+        "category": "RcFromRawUAF",
+        "type": "TAINT_ANALYSIS",
+        "source_reason": "CodeQL Rust 未覆盖 Rc::from_raw UAF 模式; 蓝牙 rootcanal 审计发现",
+        "sinks": {
+          "regex": [
+            "Rc::from_raw"
+          ]
+        },
+        "sources": {
+          "regex": []
+        }
       }
     ],
     "php": [
@@ -2783,6 +2924,43 @@
           ]
         },
         "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。"
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "extracted via codeql_sink_extractor.py",
+        "sinks": {
+          "regex": [
+            "sqlite3_exec\\(_:_:_:_:_:\\)\\s*\\(",
+            "sqlite3_prepare\\(_:_:_:_:_:\\)\\s*\\(",
+            "sqlite3_prepare_v2\\(_:_:_:_:_:\\)\\s*\\(",
+            "sqlite3_prepare_v3\\(_:_:_:_:_:_:\\)\\s*\\(",
+            "sqlite3_prepare16\\(_:_:_:_:_:\\)\\s*\\(",
+            "sqlite3_prepare16_v2\\(_:_:_:_:_:\\)\\s*\\(",
+            "sqlite3_prepare16_v3\\(_:_:_:_:_:_:\\)\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-611",
+        "category": "XmlParserSink",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "extracted via codeql_sink_extractor.py",
+        "sinks": {
+          "regex": [
+            "init\\(xml:options:\\)\\s*\\(",
+            "init\\(xml:encoding:options:\\)\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
       }
     ],
     "kotlin": [
