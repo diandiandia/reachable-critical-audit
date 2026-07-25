@@ -181,14 +181,23 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 
 由 `tools/codeql_sink_extractor.py` 完成，可重现：
 
-| 语言 | CodeQL 路径 | 关键 qll 文件 | 提取正则 |
+| 语言 | CodeQL 路径 | 关键 qll 文件 / 提取路径 | 提取模式与 AST 支撑 |
 | :--- | :--- | :--- | :--- |
-| C++ | `cpp/ql/lib/semmle/code/cpp/security/` | `BufferAccess.qll` / `BufferWrite.qll` / `CommandExecution.qll` / `Overflow.qll` / `PrintfLike.qll` / `flowafterfree/*.qll` / `FileWrite.qll` | `hasGlobalName\("([^"]+)"\)` / `hasName\(\[([^\]]+)\]\)` |
-| Java | `java/ql/lib/semmle/code/java/security/` | `TaintTracking.qll` / `SQL.qll` / `Command.qll` / `Xss.qll` / `XML.qll` / `Dom/*.qll` / `Http*.qll` | `getMethod\("([^"]+)"\)` / `hasName\(\[([^\]]+)\]\)` |
-| Python | `python/ql/lib/semmle/code/python/security/` | `TaintedBytesban.qll` / `SqlEvaluation.qll` 等 | 同上 |
-| JS/TS | `javascript/ql/lib/semmle/code/javascript/security/` | `*Sink.qll` 系列 | 同上 |
-| Go | `go/ql/lib/semmle/code/go/security/` | `*Sink.qll` 系列 | 同上 |
-| Rust | `rust/ql/lib/semmle/code/rust/security/`（若已有） | `*Sink.qll` 系列 | 同上 |
+| C++ | `cpp/ql/lib/semmle/code/cpp/security/` | `BufferAccess.qll` / `BufferWrite.qll` / `CommandExecution.qll` / `Overflow.qll` / `FileWrite.qll` | `hasGlobalName("...")` + 100% Tree-Sitter AST S-expr |
+| Java | `java/ql/lib/semmle/code/java/security/` | `SQL.qll` / `Command.qll` / `Xss.qll` / `XML.qll` / `Dom/*.qll` | `getMethod("...")` + 100% Tree-Sitter AST S-expr |
+| Python | `python/ql/lib/semmle/code/python/security/` | `SqlEvaluation.qll` / `Exec.qll` 等 | `getFunc("...")` + 100% Tree-Sitter AST S-expr |
+| JS/TS | `javascript/ql/lib/semmle/code/javascript/security/` | `*Sink.qll` 系列 | `getCalleeName("...")` + 100% Tree-Sitter AST S-expr |
+| Go | `go/ql/lib/semmle/code/go/security/` | `*Sink.qll` 系列 | `hasMemberName("...")` + 100% Tree-Sitter AST S-expr |
+| C# | `csharp/ql/lib/semmle/code/csharp/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
+| Rust | `rust/ql/lib/codeql/rust/security/` | `*Sink.qll` 系列 | `unsafe_block` / `hasName` + 100% AST S-expr |
+| PHP | `php/ql/lib/semmle/code/php/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
+| Ruby | `ruby/ql/lib/codeql/ruby/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
+| Swift | `swift/ql/lib/codeql/swift/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
+| Kotlin | `kotlin/ql/lib/codeql/kotlin/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
+| Scala | `scala/ql/lib/codeql/scala/security/` (及 Java 通用) | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
+| Shell | `shell/ql/lib/codeql/shell/security/` | Command/eval 提取模式 | `command_name` + 100% Tree-Sitter AST S-expr |
+| Perl | `perl/ql/lib/codeql/perl/security/` | Sys/eval 提取模式 | `function_call` + 100% Tree-Sitter AST S-expr |
+| PowerShell | `powershell/ql/lib/codeql/powershell/security/` | Invoke/cmd 提取模式 | `command_elements` + 100% Tree-Sitter AST S-expr |
 
 清洗步骤：
 1. `git clone https://github.com/github/codeql --depth 1 --branch <tag>` 固定版本

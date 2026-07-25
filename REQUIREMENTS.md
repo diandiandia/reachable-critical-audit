@@ -56,8 +56,8 @@
     *   **L2**：项目包含非预设语言（如 Erlang、Haskell、Cobol）。Agent **必须**利用内置安全知识动态生成该语言的 Top 10 高危漏洞映射（仅限 RCE、SQLi、SSRF、越权、反序列化类别），落盘为 `.audit_results/extended_profile.json`，由主 Agent 复核后才并入候选队列，标注 `origin: "L2"`。
 *   **强制约束**：L2 fallback 产物必须经主 Agent 显式复核签名（在 `extended_profile.json` 中写 `reviewed_by: "main-agent"` 字段）后才能进入 R3 验证队列。
 
-### REQ-03: AST 物理工具强制 R0 self-check
-*   **详细描述**：Skill 启动后第一步（R0 阶段）必须运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` 及对应语言 grammar 可用。脚本输出 JSON（如 `{"status": "ok", "has_tree_sitter": true}`），self-check 失败（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。self-check 通过后才允许进入 R1 静态扫描；R1 阶段的正则粗筛若缺乏 AST S-expression 校验支撑，必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
+### REQ-03: AST 物理工具强制 R0 self-check 与全语言 AST 对齐
+*   **详细描述**：Skill 启动后第一步（R0 阶段）必须运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `total_rules`, `ast_patterns_coverage_pct`），self-check 校验规则库加载失败（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。全量 15 种预设语言的 191 条静态规则必须达到 100% 的 Tree-Sitter AST S-expression 语法树模式覆盖，消除非必要的正则降级；R1 阶段正则粗筛若缺乏 AST S-expression 校验支撑，必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
 *   **详细描述**：初筛与审计阶段必须物理忽略：未采用驼峰命名、缺失文件注释、非安全场景弱随机数、代码风格违规等规范类问题。同时必须自动识别并过滤第三方压缩/混淆库（文件名含 `.min.`、`vendor/`、`node_modules/`、`third_party/`、`libs/` 等典型路径），匹配行长度超过 1000 字符强制截断并标注 `... [TRUNCATED]` 以防空提示词触发模型安全策略或导致子会话挂起。
@@ -140,8 +140,8 @@
     4.  既无 `define_subagent` 也无 `task` 工具且 CLI 不可用 → **Mode A'' (Single-Agent In-Process Fallback)**，主 Agent 在本地主会话中串行研判。
 *   **强制约束**：`run_workflow.js` 在 CLI 探测时遇到 ENOENT 必须返回结构化 `{mode: "AGENT_NATIVE_FALLBACK", reason}` 对象且不触发崩溃，引导主 Agent 切换模式接管。
 
-### REQ-18: 框架感知扩展 (R1.5 阶段)
-*   **详细描述**：R1 静态扫描完成后，按 `security_profiles.json` 的 `wrapper_detection` 配置扫描项目自定义 wrapper（allocator / parser macros / lifecycle / sql wrappers / ipc sinks 等）。产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json`，标记 `origin: "L1"`。
+### REQ-18: 框架感知扩展 (R1.5 阶段全语言对齐)
+*   **详细描述**：R1 静态扫描完成后，按 `security_profiles.json` 的 `wrapper_detection` 配置扫描项目自定义 wrapper（覆盖全部 15 种预设语言的 allocator / parser macros / lifecycle / sql & db wrappers / process & cmd wrappers / ipc sinks / async ownership 等）。产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json`，标记 `origin: "L1"`。
 *   **强制触发条件**：若 R1 在项目主体语言上命中数为 0，但项目代码源文件数 > 500，则 R1.5 **强制执行**。
 
 ### REQ-19: 跨进程/跨 DSO 边界 sink 终结
