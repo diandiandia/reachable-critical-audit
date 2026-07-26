@@ -48,7 +48,7 @@ graph TD
 | :--- | :--- | :--- | :--- | :--- |
 | **R0** | 工具自检 + 平台探测 | 工作区路径 | `.audit_results/` 目录骨架 + `execution_mode.json` + `verify_queue.json` 空队列 | `ast_scanner.py --self-check` 失败即 fail-fast |
 | **R1** | 静态规则扫描 (L0) | `security_profiles.json` + 工作区 | `verify_queue.json` 候选段（origin=L0） | AST 校验不通过的候选降级 NEEDS_REVIEW |
-| **R1.5** | 框架感知扩展 (L1) | `wrapper_detection` + 工作区 | `extended_sinks.json` + 并入 `verify_queue.json`（origin=L1） | R1 命中为 0 且代码量超阈值时强制执行 |
+| **R1.5** | 框架感知扩展 (L1) | `wrapper_detection` + 工作区 | `extended_sinks.json` + 并入 `verify_queue.json`（origin=L1） | 始终执行，与 R1 互补不可替代 |
 | **R3** | 回溯可达性验证 | `verify_queue.json` PENDING 节点 | 每节点状态机推进到 REACHABLE/UNREACHABLE/NEEDS_REVIEW | 每批立即落盘 + Assert 无 PENDING 才能进 R4 |
 | **R4** | 业务逻辑深钻 | `architecture_view.json` + 6 类假说 | `r4_findings` 段入 `verify_queue.json`（origin=R4） | 每假说必须明确结论（confirmed/reviewed_clean/not_applicable） |
 
@@ -130,8 +130,11 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
   "id": "<id>",
   "verdict": "REACHABLE | UNREACHABLE | NEEDS_REVIEW",
   "reachability_type": "DIRECT | ACROSS_BOUNDARY",
-  "call_chain": [<file:line>, ...],
+  "call_chain": ["file:line:function", "file:line:function", "file:line:function", ...],
+  "call_chain_depth": <int>,
   "blocking_point": "<file:line / null>",
+  "path_count": <int>,
+  "paths_analyzed": ["path1 description", ...],
   "evidence": "<一段说明>",
   "cwe": ["<CWE-...>"]
 }
@@ -142,7 +145,7 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 无论何种模式，以下流程层必须一致，不允许因平台差异而省略：
 - R0 工具自检 + `mkdir .audit_results/`
 - `verify_queue.json` 强制落盘 + 状态机
-- R1.5 强制触发条件（R1 命中 0 且代码量超阈值）
+- R1.5 始终执行（无条件，与 R1 互补）
 - R4 6 类固化假说
 - REQ-10 量化公式分母为 L0+L1+R4 总和
 
@@ -280,11 +283,12 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
     *   TAINT_ANALYSIS：Source→Sink 污染链回溯，v2 sink 类别扩充见 §2.2。
     *   PROPERTY_CHECK：从粗关键字升级为 4 类模式识别（`missing_owner_check` / `cross_boundary_trust_violation` / `exported_no_permission` / `privilege_boundary_skip`），模式定义固化在 `security_profiles.json` 的 `property_check_patterns` 段。
 
-### REQ-06: 双向调用链数据流追踪 + 跨边界终结
+### REQ-06: 双向调用链数据流追踪 + 跨边界终结（语言无关）
 *   **设计实现**：
-    *   子智能体以 sink 为终点，用 `grep` / `Grep` 工具反向查找调用者，逐层向上构建 `Sink <- Caller_L1 <- ... <- Source` 拓扑。
-    *   遇接口/抽象类穿透到所有具体实现类继续回溯。
-    *   遇跨进程 IPC / 跨 DSO / 跨 Provider authority 边界时，按 REQ-19 终结判定。
+    *   子智能体以 sink 为终点，用 `grep` / `Grep` 工具反向查找调用者，逐层向上构建 `Sink <- Caller_L1 <- Caller_L2 <- ... <- Source` 拓扑。
+    *   **强制最小深度 3 层**：输出 `call_chain` 必须包含至少 Sink ← Caller_L1 ← Caller_L2，不足 3 层必须继续向上搜索。`batch_verify.py --stage collect` 自动验证深度，< 3 则升级为 NEEDS_REVIEW。
+    *   遇接口/抽象类/特征(trait)/虚函数穿透到所有具体实现类继续回溯。
+    *   遇跨进程 IPC / 跨 DSO / 跨 Provider authority / 子进程执行 / 动态代码执行边界时，按 REQ-19 终结判定。
 
 ### REQ-07: 可达性条件过滤约束校验
 *   **设计实现**：
@@ -310,7 +314,9 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
               "status": "PENDING|VERIFIED",
               "verdict": "REACHABLE|UNREACHABLE|NEEDS_REVIEW",
               "reachability_type": "DIRECT|ACROSS_BOUNDARY",
-              "call_chain": [...], "blocking_point": "...",
+              "call_chain": [...], "call_chain_depth": <int>,
+              "blocking_point": "...", "path_count": <int>,
+              "paths_analyzed": [...],
               "verified_at": "ISO8601"
             }
           ]
@@ -369,10 +375,11 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
     *   详见 §3。三种模式探测顺序：Antigravity Native → opencode task → agy CLI → fallback opencode。
     *   结果写入 `.audit_results/execution_mode.json`。
 
-### REQ-18: 框架感知扩展 (R1.5 阶段)
+### REQ-18: 框架感知扩展 (R1.5 阶段，始终执行)
 *   **设计实现**：
-    *   R1 完成后按 `wrapper_detection` 扫描项目自有 wrapper，产出 `extended_sinks.json`，`origin=L1` 并入 `verify_queue.json`。
-    *   强制触发条件：R1 在主语言上命中 0 且项目源文件数 > 500 → R1.5 必须执行。
+    *   R1 完成后**无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 规则（CodeQL 清洗的函数签名），R1.5 通过 `wrapper_detection` 捕获项目自有 wrapper。两者覆盖不同的攻击面，不可互相替代。
+    *   按 `wrapper_detection` 扫描项目自有 wrapper（覆盖全部 15 种预设语言），产出 `extended_sinks.json`，`origin=L1` 并入 `verify_queue.json`。
+    *   即使 R1 在目标语言上命中率很高，R1.5 仍会捕获 L0 规则未覆盖的项目特有 wrapper（如 Android Bluetooth 的 `osi_*alloc`、`STREAM_TO_UINT*`、`ContentResolver.query` 自定义封装等）。
     *   pre-v2 两次漏报根因补救：MAP SQL 注入（`BluetoothMapContent.setWhereFilter*` wrapper 未识别）、AVRCP heap DoS（`osi_calloc` + `STREAM_TO_UINT16` 未识别）。
 
 ### REQ-19: 跨进程/跨 DSO 边界 sink 终结
@@ -405,6 +412,10 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 | 子智能体角色 | 散落各处调用点 | 固化 3 角色 + 任务书模板，三模式共用 |
 | 假说推演 | 自由 3~5 个 | 固化 6 类必选，三选一结论 |
 | REQ 数量 | 16 项 | 20 项（新增 REQ-17~20） |
+| R1.5 触发 | 条件触发（R1命中0且文件>500） | 始终执行（无条件） |
+| R3 深度约束 | 无 | 强制 call_chain_depth >= 3，批量验证时自动检测 |
+| 跨边界表 | 仅 Java IPC API | 语言无关，覆盖6种场景各语言示例 |
+| 输出格式 | {call_chain, blocking_point} | {call_chain, call_chain_depth, path_count, paths_analyzed} |
 
 ---
 

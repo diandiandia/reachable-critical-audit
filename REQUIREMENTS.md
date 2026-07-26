@@ -22,7 +22,7 @@
 | **REQ-03** | AST 物理工具强制 R0 self-check | P0 (Must Have) | 启动首步必须运行 `ast_scanner.py --self-check`，失败即 fail-fast，拒绝 LLM 脑补 AST。 |
 | **REQ-04** | 物理过滤低危/规范与三方库噪音 | P0 (Must Have) | 必须在初筛阶段彻底忽略代码风格、命名规范、第三方 `.min.` 压缩库以及超长行代码。 |
 | **REQ-05** | 数据流污点与业务逻辑双轨审计 | P0 (Must Have) | TAINT_ANALYSIS 追 Source→Sink 污染链；PROPERTY_CHECK 识别属主校验缺失/跨边界透传/导出无权等模式。 |
-| **REQ-06** | 双向调用链数据流追踪 | P0 (Must Have) | 自 Sink 向 Source 自底向上回溯；遇跨进程/跨 DSO/跨 IPC 边界时按 REQ-19 终结判定。 |
+| **REQ-06** | 双向调用链数据流追踪 | P0 (Must Have) | 自 Sink 向 Source 自底向上回溯，**强制最小深度 3 层**；遇跨进程/跨 DSO/跨 IPC 边界时按 REQ-19 终结判定。 |
 | **REQ-07** | 可达性条件过滤约束校验 | P1 (Should Have) | 调用链中遇到强类型转换、白名单、参数化绑定等无法穿透的 Sanitizer，判定 UNREACHABLE 并丢弃。 |
 | **REQ-08** | 特权提升可利用性分析 | P0 (Must Have) | 针对特权切换 Sink，判定提权后动作参数是否仍混入低特权用户可控变量。 |
 | **REQ-09** | verify_queue 状态机与断点硬校验 | P0 (Must Have) | 候选入队 → 分批并发 → 每批强制落盘 → 状态机 PENDING/VERIFIED/REACHABLE/UNREACHABLE/NEEDS_REVIEW → Assert 兜底。 |
@@ -34,7 +34,7 @@
 | **REQ-15** | 固化 6 类业务威胁假说 | P0 (Must Have) | 必须推演并回应 6 类固定假说：CWE-789/125-787/416-UAF/跨进程/导出无权/越权-多租户。 |
 | **REQ-16** | 业务逻辑专项 Subagent 并行深钻 | P0 (Must Have) | 通过平台任务编排拉起 `business-logic-verifier` 并发深钻锚点。 |
 | **REQ-17** | 平台兼容层与执行模式自检 | P0 (Must Have) | 启动时探测平台能力（`define_subagent` / `task` / `agy`），选择执行模式写入 `.audit_results/execution_mode.json`。 |
-| **REQ-18** | 框架感知扩展 (R1.5 阶段) | P0 (Must Have) | 按 `wrapper_detection` 扫描项目自有 wrapper（如 `osi_*`、`STREAM_TO_*`、Android SQL），产出 `extended_sinks.json` 并入队。 |
+| **REQ-18** | 框架感知扩展 (R1.5 阶段，**始终执行**) | P0 (Must Have) | 按 `wrapper_detection` 扫描项目自有 wrapper（如 `osi_*`、`STREAM_TO_*`、Android SQL），产出 `extended_sinks.json` 并入队。与 R1 互补，不可替代。 |
 | **REQ-19** | 跨进程/跨 DSO 边界 sink 终结 | P0 (Must Have) | 调用链终止于 IPC/DSO/Provider 边界且对方参数为自由文本时，边界即 sink，标记 `REACHABLE_ACROSS_BOUNDARY`。 |
 | **REQ-20** | CodeQL 模型清洗工具与可重现更新 | P0 (Must Have) | 提供 `tools/codeql_sink_extractor.py`，从 CodeQL qll 文件提取 sink/source 写入 JSON，支持版本可重现。 |
 | **REQ-21** | Mode A' batch 调度器（新增） | P0 (Must Have) | 提供 `tools/batch_verify.py`，纯 Python 实现，不走 CLI 进程，支持 --stage next/collect/assert 循环，每批 3~4 个 task 并发验证。 |
@@ -72,12 +72,14 @@
         4.  **privilege_boundary_skip**：提权前数据流入提权后执行的指令/文件路径。
 *   **强制约束**：PROPERTY_CHECK 模式定义必须固化在 `security_profiles.json` 的 `property_check_patterns` 字段，不允许散落在代码逻辑里；`ast_scanner.py` 扫描阶段需联动抽取生成 Candidate。
 
-### REQ-06: 双向调用链数据流追踪 + 跨边界终结
-*   **详细描述**：子智能体以匹配到的 sink 函数为回溯终点，利用本地代码检索（`grep` / `Grep` 工具）反向查找所有调用者，逐层向上构建 `Sink <- Caller_L1 <- Caller_L2 <- ... <- Source` 拓扑。遇接口/抽象类必须穿透到所有具体实现类继续回溯。
-*   **跨边界终结**：当调用链到达以下边界时，按 REQ-19 终结判定，不再要求在当前仓库内闭环：
-    *   跨进程 IPC：`ContentResolver.query` / `Binder` transact / `Intent` extras / `broadcast`
-    *   跨 DSO：调用外部动态库函数且无源码
-    *   跨 Provider authority：`content://<authority>/...` 切换到第三方实现的 ContentProvider
+### REQ-06: 双向调用链数据流追踪 + 跨边界终结（语言无关）
+*   **详细描述**：子智能体以匹配到的 sink 函数为回溯终点，利用本地代码检索（`grep` / `Grep` 工具）反向查找所有调用者，逐层向上构建 `Sink ← Caller_L1 ← Caller_L2 ← ... ← Source` 拓扑。**强制输出调用链最小深度 3 层**（Sink ← L1 ← L2），不足 3 层必须继续向上搜索。遇接口/抽象类必须穿透到所有具体实现类继续回溯。
+*   **跨边界终结**：当调用链到达以下边界时，按 REQ-19 终结判定，不再要求在当前仓库内闭环（语言无关）：
+    *   跨进程 IPC：ContentResolver.query / Binder.transact / Intent extras / sendBroadcast（Java）；send/write 到 IPC socket（C/Python）
+    *   跨 DSO/FFI：调用外部动态库导出函数且无源码（C/C++）；extern "C" FFI（Rust）
+    *   跨 Provider authority：content:// 切换到第三方实现的 ContentProvider
+    *   子进程执行：subprocess.Popen / os.system（Python）；child_process.exec（JS）；system / popen（C）
+    *   动态代码执行：eval / exec（Python/JS）；MethodHandle.invoke（Java）
 
 ### REQ-07: 可达性条件过滤约束校验
 *   **详细描述**：调用链中校验变量传递的控制流约束。若变量在传递途中经过无法绕过的：强类型转换（int/UUID）、严格白名单过滤器、参数化绑定（prepared statement + bindValue）、`if (offset+N>p_pkt_end)` 显式边界检查，则判定 `UNREACHABLE` 并立即从报告丢弃。判定 UNREACHABLE 必须记录阻断点 `file:line` 入 `verify_queue.json` 的 `blocking_point` 字段。
@@ -88,7 +90,8 @@
 ### REQ-09: verify_queue 状态机与断点硬校验 + batch 调度器
 *   **详细描述**：候选清单必须以状态机形式落盘到 `.audit_results/verify_queue.json`，**绝不允许只在内存中维护**：
     1.  **入队 Schema**：每个候选节点包含规范字段：`{id, origin("L0"/"L1"/"L2"/"R4"), source_file, source_line, sink_type, status("PENDING"/"VERIFIED"), verdict, reachability_type, blocking_point}`。
-    2.  **分批并发/串行研判**：按 REQ-01 选定的执行模式分批研判。Mode A' 使用 `tools/batch_verify.py` 调度：`--stage next` 输出下一批任务书 → task 并发验证 → `--stage collect` 写回队列 → 循环直至 `--stage assert` 通过。单批完成后**立即落盘**。
+     2.  **分批并发/串行研判**：按 REQ-01 选定的执行模式分批研判。Mode A' 使用 `tools/batch_verify.py` 调度：`--stage next` 输出下一批任务书 → task 并发验证 → `--stage collect` 写回队列 → 循环直至 `--stage assert` 通过。单批完成后**立即落盘**。
+     2a. **调用链深度门禁**：`--stage collect` 自动验证每个 verdict 的 `call_chain_depth`，若 `< 3` 则自动升级为 `NEEDS_REVIEW` 并追加原因。`--stage assert` 输出平均/最小/最大调用链深度指标，低于阈值报警。
     3.  **状态机**：`PENDING → VERIFIED → {REACHABLE | UNREACHABLE | NEEDS_REVIEW}`；子智能体返回模糊或拒绝回答时强制 `NEEDS_REVIEW`，不允许默认判定。
     4.  **断点续传**：二次启动读取 `verify_queue.json`，跳过已 `VERIFIED` 的节点，只处理 `PENDING`。
     5.  **Assert 兜底**：报告生成前 `batch_verify.py --stage assert` 必须通过（exit 0），存在 `PENDING` 节点则 `exit(2)` 强制中断。`NEEDS_REVIEW` 节点必须在报告中显式列出。
@@ -140,9 +143,9 @@
     4.  既无 `define_subagent` 也无 `task` 工具且 CLI 不可用 → **Mode A'' (Single-Agent In-Process Fallback)**，主 Agent 在本地主会话中串行研判。
 *   **强制约束**：`run_workflow.js` 在 CLI 探测时遇到 ENOENT 必须返回结构化 `{mode: "AGENT_NATIVE_FALLBACK", reason}` 对象且不触发崩溃，引导主 Agent 切换模式接管。
 
-### REQ-18: 框架感知扩展 (R1.5 阶段全语言对齐)
-*   **详细描述**：R1 静态扫描完成后，按 `security_profiles.json` 的 `wrapper_detection` 配置扫描项目自定义 wrapper（覆盖全部 15 种预设语言的 allocator / parser macros / lifecycle / sql & db wrappers / process & cmd wrappers / ipc sinks / async ownership 等）。产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json`，标记 `origin: "L1"`。
-*   **强制触发条件**：若 R1 在项目主体语言上命中数为 0，但项目代码源文件数 > 500，则 R1.5 **强制执行**。
+### REQ-18: 框架感知扩展 (R1.5 阶段全语言对齐，**始终执行**)
+*   **详细描述**：R1 静态扫描完成后**必须无条件执行** R1.5。R1.5 与 R1 互补：R1 聚焦预设 L0 规则（CodeQL 清洗的函数签名），R1.5 通过 `wrapper_detection` 配置扫描项目自定义 wrapper（覆盖全部 15 种预设语言的 allocator / parser macros / lifecycle / sql & db wrappers / process & cmd wrappers / ipc sinks / async ownership 等）。两者覆盖不同的攻击面，不可互相替代。即使 R1 在目标语言上命中率很高，R1.5 仍会捕获 L0 规则未覆盖的项目特有 wrapper（如 Android Bluetooth 的 `osi_*alloc`、`STREAM_TO_UINT*`、`ContentResolver.query` 自定义封装等）。
+*   **产出**：`.audit_results/extended_sinks.json`，并入 `verify_queue.json`，标记 `origin: "L1"`。
 
 ### REQ-19: 跨进程/跨 DSO 边界 sink 终结
 *   **详细描述**：调用链回溯到达以下边界时，按规则判定为 sink 达成，标记 `verdict=REACHABLE_ACROSS_BOUNDARY`，不要求在当前仓库内闭环追溯外部实现：
@@ -177,3 +180,7 @@
 | REQ-12 | 事后要求自觉 | 前置守卫 + 路径前缀强制 | pre-v2 Bluetooth 根目录残留报告文件 |
 | REQ-15 | 自由 3~5 个假说 | 固化 6 类必选 | pre-v2 漏推演 CWE-789/UAF 跨进程等假说 |
 | REQ-17~20 | 不存在 | 新增 | 补平台兼容层 / R1.5 / 跨边界 / CodeQL 工具 |
+| REQ-18 | 条件触发(R1命中0且文件>500) | **始终执行** | 框架感知扩展与R1互补，不可互相替代；pre-v2漏报根因补救需全覆盖 |
+| REQ-06 | 无深度约束 | **强制最小深度3层** | 防止子智能体按上下文归类而非追踪数据流导致遗漏 |
+| REQ-09 | 仅状态机 | **增加调用链深度门禁** | batch_verify.py自动验证depth<3→NEEDS_REVIEW |
+| REQ-19 | 仅Java ContentResolver/Binder | **语言无关化** | 新增Python/JS/C/C++/Rust跨边界示例 |
