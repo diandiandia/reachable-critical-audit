@@ -22,18 +22,19 @@ description: 专门针对项目进行严重漏洞（RCE, SQLi, SSRF, Bypasses, U
 
 ## 🔌 平台兼容层 (Platform Adapter)
 
-Skill 必须在 R0 阶段探测平台能力，选择执行模式并写入 `.audit_results/execution_mode.json`。三种模式行为一致，仅原语不同。
+Skill 必须在 R0 阶段探测平台能力，选择执行模式并写入 `.audit_results/execution_mode.json`。
 
 | 模式 | 平台 | 编排原语 | Subagent 类型 | 探测条件 |
 |---|---|---|---|---|
 | **A** | Antigravity | `define_subagent` + `invoke_subagent` | `vulnerability-verifier` / `business-logic-verifier` / `framework-sink-extractor` | 工具列表含 `define_subagent` 或 `REACHABLE_AUDIT_MODE=native` |
 | **A'** | opencode 等 | `task(subagent_type="general"/"explore")` | 通用子智能体（task 的 description + prompt 承载角色） | 工具列表含 `task` 或 `OPENCODE=1`；或 Mode A 不可用 |
-| **A''** | Claude Code 等 | 主 Agent 单进程本地串行研判 (`grep_search`/`view_file`) | 无子智能体（主进程直接遍历 verify_queue） | 既无 `define_subagent` 也无 `task` 工具；或作为通用降级 |
-| **B** | Antigravity CLI | `run_workflow.js` + `agy` spawn | agy 子进程会话 | `node run_workflow.js --check-availability` 返回 Mode B；ENOENT 切回 Mode A' 或 Mode A'' |
+| **B** | **Claude Code / Antigravity CLI / Codex CLI** | `run_workflow.js` 多平台自适应 + `claude -p` / `agy --prompt` / `codex --full-auto` spawn | 独立 CLI 子进程会话（物理隔离 context，解决注意力下降） | `node run_workflow.js --check-availability` 返回检测到的 CLI；或环境变量 `AGENT_CLI=claude\|agy\|codex` |
+
+**Mode B 多 CLI 自适应**：`run_workflow.js` 自动按 `claude → agy → codex` 优先级探测环境中可用的 CLI 工具，也可通过 `AGENT_CLI` 环境变量强制指定。每个候选点 spawn 独立子进程执行（物理隔离 LLM context），彻底解决长序列审计中的注意力下降问题。支持环境变量 `BATCH_SIZE`（并发数，默认 4）和 `TIMEOUT_MS`（单次超时，默认 300000ms）。
 
 **强制约束**：无论何种模式，R0 工具自检、`verify_queue.json` 落盘、R1.5 强制触发条件、R4 6 类固化假说、REQ-10 量化公式必须一致执行。
 
-> 在 opencode 等 fallback 平台上，SKILL.md 后文中所有出现的 `define_subagent`/`invoke_subagent` 调用描述在 Mode A' 下等价于 `task(subagent_type="general", description="<role>: <id>", prompt=<任务书>)`；在 Mode A'' 下由主 Agent 在本地会话中直接按任务书要求读取代码并更新 `verify_queue.json`。详见附录 A 任务书模板。
+> 在 opencode 等 fallback 平台上，SKILL.md 后文中所有出现的 `define_subagent`/`invoke_subagent` 调用描述在 Mode A' 下等价于 `task(subagent_type="general", description="<role>: <id>", prompt=<任务书>)`；在 Mode B 下由 `run_workflow.js` 自动编排。详见附录 A 任务书模板。
 
 > ⚠️ **AGENT 强制自查**：执行本 skill 的 Agent 必须在 R0 阶段确认已完整阅读以下各阶段规则。**禁止跳过 R0 工具自检**、**禁止用手工 grep 替代 R1 ast_scanner.py 全量扫描**、**禁止不创建 verify_queue.json 直接分析**、**禁止在 R4 启动前不执行 R3 assertion**。pre-v2 两次审计（tirreno、Android Bluetooth）的根因就是 Agent 跳过了这些步骤——用"捡重要的看"替代了系统性验证，导致候选不全、降噪率虚高、关键 sink 漏审。**本 v2 的 R0/R1/R1.5/R3/R4 五阶段漏斗设计是强制串行的，不得重排或跳过任何阶段。**
 

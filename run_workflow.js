@@ -1,49 +1,24 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 /**
- * Reachable Critical Audit - CLI Workflow Orchestrator (Node.js) -- Mode B (可选)
+ * Reachable Critical Audit - CLI Workflow Orchestrator (Node.js)
  *
- * v2 角色: 本脚本是 SKILL.md REQ-01/REQ-17 平台兼容层中的 **可选执行路径**。
- *   - Mode A (Antigravity Native): define_subagent/invoke_subagent, 不调用本脚本
- *   - Mode A' (opencode 等):       task 工具, 不调用本脚本 ← **opencode 见到这个应立即退出，改用 task 模式**
- *   - Mode B (Antigravity CLI):    本脚本 + agy spawn 编排
+ * 多平台兼容版本：自动检测并适配 claude / agy / codex CLI 环境。
  *
- * ┌──────────────────────────────────────────────────────────────────────────┐
- * │ opencode / Claude Code 用户在 Mode A' 下不要运行此脚本。请改用以下方式: │
- * │                                                                          │
- * │   R1 阶段: python3 tools/ast_scanner.py <workspace> .audit_results/     │
- * │            → 产出 verify_queue.json (全量候选队列)                      │
- * │                                                                          │
- * │   R3 阶段: for batch [0..candidates.length] @ step 4:                   │
- * │              task(subagent_type="general",                               │
- * │                   description="vulnerability-verifier: CAND-xxx",        │
- * │                   prompt=<按照附录 A.1 生成的任务书>)                    │
- * │            每批完成后: fs.writeFileSync("verify_queue.json", ...)        │
- * │            Assert: candidates.every(c => c.status !== "PENDING")         │
- * │                                                                          │
- * │   R4 阶段: task(...) 并发深钻 6 类假说                                    │
- * │   最终: 汇总 verify_queue.json + r4_findings → 生成报告                  │
- * └──────────────────────────────────────────────────────────────────────────┘
+ * 支持的 CLI 运行环境：
+ *   - Claude Code:       claude -p <prompt> --dangerously-skip-permissions
+ *   - Antigravity CLI:   agy --dangerously-skip-permissions --prompt <prompt>
+ *   - OpenAI Codex CLI:  codex --quiet --full-auto <prompt>
+ *   - 环境变量覆盖:      AGENT_CLI=<binary> AGENT_CLI_ARGS=<json_array>
  *
- * Skill 在 R0 平台探测阶段会运行 `node run_workflow.js --check-availability`:
- *   - agy 可用 → 进入 Mode B, 本脚本接管 R1/R3/R4 编排
- *   - agy 不可用 (ENOENT) → 返回结构化 {mode:"AGENT_NATIVE_FALLBACK",...},
- *     主 Agent 接管所有后续子智能体调用 (Mode A 或 A')
- *
- * 具备【并发批处理 / 物理隔离 / 实时落盘断点保护】的安全审计工作流：
- * 1. 执行本地 AST 物理扫描，加载/生成 verify_queue.json 持久化队列。
- * 2. 按照每次启动 3-5 个（默认 4 个）子智能体的并发方式，进行批处理循环研判。
- * 3. 使用 child_process.spawn 异步调度 CLI 会话，彻底避免 Shell 字符注入漏洞。
- * 4. 每批次运行结束后【实时落盘】，断点续传，最终进行 Assert 完整性拦截校验。
- * 5. 完成后 compileReport 生成 JSON + Markdown 报告。
- *
- * v2 修订要点:
- * - runAgentCmd 的 child.on('error') 增加 ENOENT 结构化降级返回
- * - 新增 --check-availability 子命令,供 R0 平台探测调用
- * - 顶部说明文档化为"可选执行路径",避免与 Agent-Native 模式混用
- * - 新增 opencode Mode A' 工作流注释（此脚本不执行,仅供文档参考）
+ * 核心保证：
+ *   1. 每个候选 spawn 独立子进程 → 物理隔离 context，解决注意力下降
+ *   2. 每批次落盘 → 断点续传，中断后重启自动跳过已完成项
+ *   3. 完整性 Assert → 所有候选必须被验证，一个不跳过
+ *   4. 结构化 Verdict 提取 → 精准正则，防止模糊判定
+ *   5. JSON Schema 2.0 兼容 → 支持 {candidates:[]} 和 [] 两种格式
  */
 
 const colors = {
@@ -55,42 +30,104 @@ const colors = {
     cyan: "\x1b[36m"
 };
 
-// 并发批大小定义 (用户要求 3-5 个)
-const BATCH_SIZE = 4;
+// ==================== 平台自适应层 ====================
 
-// 使用 spawn 独立进程执行，规避 Shell 字符注入与转义解析异常
-// v2: 增加 ENOENT 结构化降级 (REQ-01/REQ-17)
-function runAgentCmd(args) {
+/**
+ * 检测当前环境可用的 AI CLI 工具。
+ * 优先级: 环境变量 > claude > agy > codex
+ */
+function detectAgentCli() {
+    // 1. 环境变量覆盖
+    if (process.env.AGENT_CLI) {
+        return process.env.AGENT_CLI;
+    }
+    // 2. 按优先级探测
+    const candidates = ['claude', 'agy', 'codex'];
+    for (const cli of candidates) {
+        try {
+            execSync(`which ${cli}`, { stdio: 'ignore' });
+            return cli;
+        } catch (e) { /* not found, try next */ }
+    }
+    // 3. 无可用 CLI
+    console.error(`${colors.red}[FATAL] 未检测到任何 AI CLI 工具 (claude/agy/codex)。`);
+    console.error(`请安装 Claude Code (npm i -g @anthropic-ai/claude-code) 或设置 AGENT_CLI 环境变量。${colors.reset}`);
+    process.exit(1);
+}
+
+/**
+ * 根据 CLI 类型构建参数数组。
+ * Claude Code: claude -p <prompt> --dangerously-skip-permissions
+ * Antigravity: agy --dangerously-skip-permissions --prompt <prompt>
+ * Codex:       codex --quiet --full-auto <prompt>
+ */
+function buildCliArgs(cliName, prompt) {
+    // 环境变量自定义参数模板
+    if (process.env.AGENT_CLI_ARGS) {
+        try {
+            const template = JSON.parse(process.env.AGENT_CLI_ARGS);
+            return template.map(arg => arg === '$PROMPT' ? prompt : arg);
+        } catch (e) {
+            console.error(`${colors.yellow}[WARN] AGENT_CLI_ARGS 解析失败，使用默认参数模板。${colors.reset}`);
+        }
+    }
+
+    switch (cliName) {
+        case 'claude':
+            return ['-p', prompt, '--dangerously-skip-permissions'];
+        case 'codex':
+            return ['--quiet', '--full-auto', prompt];
+        case 'agy':
+        default:
+            return ['--dangerously-skip-permissions', '--prompt', prompt];
+    }
+}
+
+// 并发批大小（每批 spawn 的子进程数）
+const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '4', 10);
+
+// CLI 单次执行超时（毫秒，默认 5 分钟）
+const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || '300000', 10);
+
+// ==================== 子进程执行引擎 ====================
+
+/**
+ * spawn 独立子进程执行 AI CLI。
+ * - 物理隔离 context: 每个候选独立进程，注意力不衰减
+ * - spawn 直接传参: 规避 shell 字符注入
+ * - 超时保护: 防止单个候选阻塞整个流程
+ */
+function runAgentCmd(prompt) {
     return new Promise((resolve, reject) => {
-        const child = spawn('agy', args);
+        const cliName = detectAgentCli();
+        const args = buildCliArgs(cliName, prompt);
+
+        console.log(`${colors.cyan}    [CLI] ${cliName} ${args[0]} ...${colors.reset}`);
+
+        const child = spawn(cliName, args, {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: TIMEOUT_MS
+        });
+
         let stdout = '';
         let stderr = '';
-        
-        // v2: ENOENT 时返回结构化 fallback 对象, 由主 Agent 接管 (Mode A/A')
-        // 这保证 R0 平台探测能拿到结构化结果而非异常崩溃
+
+        child.stdout.on('data', (data) => { stdout += data; });
+        child.stderr.on('data', (data) => { stderr += data; });
+
         child.on('error', (err) => {
             if (err.code === 'ENOENT') {
-                resolve({
-                    mode: 'AGENT_NATIVE_FALLBACK',
-                    reason: 'agy CLI not found in PATH',
-                    instruction: '主 Agent 接管, 所有后续 subagent 调用走 define_subagent/task 工具 (Mode A/A\')'
-                });
+                reject(new Error(`CLI "${cliName}" not found in PATH. Install it or set AGENT_CLI env var.`));
             } else {
                 reject(err);
             }
         });
-        
-        child.stdout.on('data', (data) => {
-            stdout += data;
-        });
-        
-        child.stderr.on('data', (data) => {
-            stderr += data;
-        });
-        
-        child.on('close', (code) => {
-            if (code !== 0) {
-                reject(new Error(stderr.trim() || `Process exited with code ${code}`));
+
+        child.on('close', (code, signal) => {
+            if (signal === 'SIGTERM') {
+                reject(new Error(`CLI timeout after ${TIMEOUT_MS}ms`));
+            } else if (code !== 0) {
+                reject(new Error(stderr.trim() || `CLI (${cliName}) exited with code ${code}`));
             } else {
                 resolve(stdout);
             }
@@ -98,143 +135,117 @@ function runAgentCmd(args) {
     });
 }
 
+// ==================== verify_queue.json 读写层 ====================
+
 /**
- * --check-availability 子命令: 供 SKILL.md R0 平台兼容层调用。
- * 探测 agy 是否可用, 输出结构化 JSON 供主 Agent 决策模式:
- *   {"mode": "B_ANTIGRAVITY_CLI", "agy_path": "..."}      → 进入 Mode B
- *   {"mode": "AGENT_NATIVE_FALLBACK", "reason": "ENOENT"}  → 切回 Mode A/A'
- *
- * Usage: node run_workflow.js --check-availability
+ * 兼容两种 JSON Schema:
+ *   - Schema 2.0: {"schema_version":"2.0","candidates":[...]}
+ *   - Legacy:     [...]
  */
-function checkAvailability() {
-    // 通过 spawning `agy --version` 探测
-    let reported = false;
-    const child = spawn('agy', ['--version']);
-    child.on('error', (err) => {
-        if (err.code === 'ENOENT') {
-            console.log(JSON.stringify({
-                mode: 'AGENT_NATIVE_FALLBACK',
-                reason: 'agy CLI not found in PATH (ENOENT)',
-                instruction: '主 Agent 接管, 走 define_subagent (Antigravity) 或 task 工具 (opencode)'
-            }));
-            process.exit(0);
-        } else {
-            console.error(`[!] check-availability error: ${err.message}`);
-            process.exit(2);
-        }
-    });
-    child.stdout.on('data', (data) => {
-        if (reported) return;
-        reported = true;
-        const version = data.toString().trim();
-        console.log(JSON.stringify({
-            mode: 'B_ANTIGRAVITY_CLI',
-            agy_version: version,
-            instruction: '可进入 Mode B, 由 run_workflow.js 编排 R1/R3/R4'
-        }));
-        process.exit(0);
-    });
-    child.on('close', (code) => {
-        if (reported) return;  // stdout 已输出,无需重复
-        console.log(JSON.stringify({
-            mode: 'B_ANTIGRAVITY_CLI',
-            agy_exit_code: code,
-            note: code === 0 ? 'agy --version exit 0 (no stdout)' : `agy --version exit ${code},仍视为可用`,
-            instruction: '可进入 Mode B, 由 run_workflow.js 编排 R1/R3/R4'
-        }));
-        process.exit(0);
-    });
-}
-
-// 入口: --check-availability 短路(必须阻止 executeWorkflow 入口)
-if (process.argv.includes('--check-availability')) {
-    checkAvailability();
-    // checkAvailability 内部进程退出;此处设置守卫标志,文件末尾入口检查后跳过 executeWorkflow
-}
-
-async function executeWorkflow(workspacePath) {
-    console.log(`${colors.cyan}[*] 初始化 Reachable Critical Audit 工作流...${colors.reset}`);
-    const scannerPath = path.join(__dirname, 'tools', 'ast_scanner.py');
-    
-    // 创建特殊文件夹以防污染源码
-    const outputDir = path.join(workspacePath, '.audit_results');
-    if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
+function loadQueue(queuePath) {
+    if (!fs.existsSync(queuePath)) return { raw: null, candidates: [] };
+    const raw = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+    if (Array.isArray(raw)) {
+        return { raw: null, candidates: raw };
     }
-    
-    const queuePath = path.join(outputDir, 'verify_queue.json');
-    const reportPath = path.join(outputDir, 'reachable_vulnerabilities_report.json');
+    return { raw, candidates: raw.candidates || [] };
+}
 
-    // --- 阶段 1: 扫描/加载候选队列 ---
-    let queue = [];
-    if (fs.existsSync(queuePath)) {
-        console.log(`${colors.yellow}[*] 发现已存在的队列文件 verify_queue.json，载入以支持断点续传模式...${colors.reset}`);
-        queue = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+function saveQueue(queuePath, rawWrapper, candidates) {
+    if (rawWrapper === null) {
+        // Legacy array format
+        fs.writeFileSync(queuePath, JSON.stringify(candidates, null, 2), 'utf8');
     } else {
-        console.log(`${colors.blue}[*] 未发现历史队列，启动本地 AST 扫描生成新队列...${colors.reset}`);
-        try {
-            // 同步执行初筛作为第一步，秒级速度
-            const { execSync } = require('child_process');
-            execSync(`python3 "${scannerPath}" "${workspacePath}" "${outputDir}"`, { stdio: 'inherit' });
-            queue = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
-        } catch (error) {
-            console.error(`${colors.red}[Error] AST 扫描器执行失败. 流程终止。${colors.reset}`);
-            process.exit(1);
-        }
+        // Schema 2.0 object format
+        rawWrapper.candidates = candidates;
+        fs.writeFileSync(queuePath, JSON.stringify(rawWrapper, null, 2), 'utf8');
+    }
+}
+
+// ==================== Verdict 结构化提取 ====================
+
+/**
+ * 从 AI CLI stdout 中精准提取判定结论。
+ * 三层降级策略:
+ *   1. 结构化 JSON verdict 字段
+ *   2. VERDICT: REACHABLE/UNREACHABLE 标记
+ *   3. 末行 YES/NO 关键词 (最弱降级)
+ */
+function extractVerdict(stdout) {
+    if (typeof stdout !== 'string') return 'NEEDS_REVIEW';
+
+    // Layer 1: 尝试解析结构化 JSON 输出
+    try {
+        const jsonMatch = stdout.match(/\{[\s\S]*"verdict"\s*:\s*"(REACHABLE|UNREACHABLE|NEEDS_REVIEW)"[\s\S]*\}/);
+        if (jsonMatch) return jsonMatch[1].toUpperCase();
+    } catch (e) { /* not JSON, try next */ }
+
+    // Layer 2: 精准结构化标记 (Prompt 要求输出此格式)
+    const verdictMatch = stdout.match(/VERDICT:\s*(REACHABLE|UNREACHABLE|NEEDS_REVIEW)/i);
+    if (verdictMatch) return verdictMatch[1].toUpperCase();
+
+    // Layer 3: 降级 — 只看最后 500 字符中的关键词，避免分析过程中的词汇干扰
+    const tail = stdout.slice(-500);
+    const hasReachable = /\bREACHABLE\b/i.test(tail);
+    const hasUnreachable = /\bUNREACHABLE\b/i.test(tail);
+    if (hasReachable && !hasUnreachable) return 'REACHABLE';
+    if (hasUnreachable && !hasReachable) return 'UNREACHABLE';
+
+    return 'NEEDS_REVIEW';
+}
+
+/**
+ * 从 R4 Subagent stdout 中提取假说判定。
+ */
+function extractHypothesisVerdict(stdout) {
+    if (typeof stdout !== 'string') return { status: 'NEEDS_REVIEW', summary: 'Non-string output' };
+
+    const confirmedMatch = stdout.match(/HYPOTHESIS_CONFIRMED:\s*([^\r\n]+)/);
+    if (confirmedMatch) {
+        return { status: 'REACHABLE', verdict: 'confirmed', summary: confirmedMatch[1].trim() };
     }
 
-    const pendingCandidates = queue.filter(c => c.status === "PENDING");
-    console.log(`${colors.green}[+] 队列载入成功: 总候选点数 ${queue.length}，剩余待分析点数 ${pendingCandidates.length}。${colors.reset}`);
-
-    if (pendingCandidates.length === 0) {
-        console.log(`${colors.green}[+] 所有候选点均已分析完毕，直接进行报告汇总。${colors.reset}`);
-        compileReport(queue, reportPath);
-        return;
+    const cleanMatch = stdout.match(/HYPOTHESIS_CLEAN:\s*([^\r\n]+)/);
+    if (cleanMatch) {
+        return { status: 'UNREACHABLE', verdict: 'reviewed_clean', summary: cleanMatch[1].trim() };
     }
 
-    // --- 阶段 2: 批处理异步并发审计循环 (REQ-01) ---
-    console.log(`${colors.blue}[*] 阶段 2: 启动子智能体批处理并发研判 (每批大小: ${BATCH_SIZE})...${colors.reset}`);
-    
-    // 仅提取待处理的候选点索引
-    const pendingIndices = queue
-        .map((cand, index) => ({ cand, index }))
-        .filter(item => item.cand.status === "PENDING");
+    return { status: 'NEEDS_REVIEW', verdict: 'needs_review', summary: '未明确输出假说结论，需要人工复核。' };
+}
 
-    for (let i = 0; i < pendingIndices.length; i += BATCH_SIZE) {
-        const batch = pendingIndices.slice(i, i + BATCH_SIZE);
-        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(pendingIndices.length / BATCH_SIZE);
+// ==================== Prompt 模板（结构化输出要求）====================
 
-        console.log(`\n==================================================`);
-        console.log(`${colors.yellow}[*] 执行审计批次 [Batch: ${batchNum}/${totalBatches}] (并发数: ${batch.length})${colors.reset}`);
-        console.log(`==================================================`);
+function buildVerifyPrompt(cand) {
+    if (cand.type === "PROPERTY_CHECK") {
+        return `你是一个 vulnerability-verifier 子智能体。请对以下代码候选点进行【业务逻辑越权审计】。
 
-        // 并发执行当前批次
-        await Promise.all(batch.map(async ({ cand, index }) => {
-            console.log(`${colors.blue}[*] [ID: ${cand.id}] 开始验证... (CWE: ${cand.cwe_id} | File: ${path.basename(cand.file_path)}:${cand.line_number})${colors.reset}`);
-
-            // 组装专属审计 Prompt
-            let prompt = "";
-            if (cand.type === "PROPERTY_CHECK") {
-                prompt = `
-请对以下代码候选点进行【业务逻辑越权审计】。你可以调用 read_file_segment, find_callers 等工具：
+任务上下文:
 - 语言: ${cand.language}
 - CWE类别: ${cand.cwe_id} (${cand.category})
 - 敏感API文件: ${cand.file_path}
 - 行号: ${cand.line_number}
 - 代码内容: ${cand.sink_content}
-- 验证逻辑指导: ${cand.verification_logic}
+- 验证逻辑指导: ${cand.verification_logic || '检查指针解引用前是否有 NULL 检查'}
 
 请执行以下校验步骤：
-1. 深入阅读该敏感写操作方法体，并回溯其上游控制器方法。
-2. 重点审查代码中是否缺失了属主关系比对（例如，是否验证了当前会话登录的用户ID等于被修改数据的所有者ID，如 session.userId == data.userId）。
-3. 检查是否有权限拦截装饰器。若缺乏任何归属比对，判定为越权逻辑漏洞。
+1. 深入阅读该敏感写操作方法体，并回溯其上游控制器方法（至少 3 层调用链）。
+2. 重点审查代码中是否缺失了属主关系比对。
+3. 检查是否有权限拦截装饰器。
 
-请输出最终结论：YES (确认存在越权越权逻辑漏洞) 或 NO (安全/已做属主校验)。并提供分析证据。
-`;
-            } else {
-                prompt = `
-请对以下代码的目标调用进行【数据流参数控制关系分析】。你可以使用 find_callers, read_file_segment 等代码定位工具：
+【强制输出格式】在回复的最后一行，输出以下标记之一（不要遗漏）：
+VERDICT: REACHABLE
+或
+VERDICT: UNREACHABLE
+并提供分析证据。`;
+    }
+
+    const sources = (cand.sources_regex && cand.sources_regex.length > 0)
+        ? cand.sources_regex.join(', ')
+        : 'argv, getenv, read, recv';
+
+    return `你是一个 vulnerability-verifier 子智能体。请对以下代码的目标调用进行【数据流参数控制关系分析】。
+
+任务上下文:
 - 语言: ${cand.language}
 - 分析类别: ${cand.category}
 - 目标调用文件: ${cand.file_path}
@@ -243,216 +254,309 @@ async function executeWorkflow(workspacePath) {
 - 校验要求: ${cand.reachability_constraints || "分析入参是否经过严格的安全过滤或强类型转换"}
 
 验证步骤：
-1. 追溯调用该目标函数代码的上游函数和控制器入口。
-2. 检查这些上游调用链中的参数，是否直接或间接地被外部可控输入（例如 ${cand.sources_regex.join(', ')} 等）所控制。
+1. 追溯调用该目标函数代码的上游函数和控制器入口（至少 3 层调用链）。
+2. 检查这些上游调用链中的参数，是否直接或间接地被外部可控输入（例如 ${sources} 等）所控制。
 3. 校验路径上是否有健全的类型转换、白名单过滤或编码转义处理将外部控制关系隔断。
 
-请输出最终结论：YES (确认外部输入可控制该目标调用且没有被妥善处理) 或 NO (不可控/或已被安全隔离)。并给出完整的分析证据链。
-`;
-            }
+【强制输出格式】在回复的最后一行，输出以下标记之一（不要遗漏）：
+VERDICT: REACHABLE
+或
+VERDICT: UNREACHABLE
+并给出完整的分析证据链。`;
+}
 
-            // 直接通过数组传参给 spawn，操作系统层级传递，免去 shell 特殊字符转义
-            const args = ['--dangerously-skip-permissions', '--prompt', prompt];
+function buildR4Prompt(domainProfile, filePath) {
+    return `你是一个 business-logic-verifier 子智能体。请对项目 [${domainProfile.domainName}] 中的高危业务模块进行【6类固化业务逻辑假说深钻】。
 
-            try {
-                // 异步拉起子会话执行
-                const stdout = await runAgentCmd(args);
+目标文件路径：${filePath}
+项目领域背景：${domainProfile.summary}
 
-                // REQ-01 / REQ-17 降级保护: 若返回结构化 fallback 对象, 引导主 Agent 接管并安全退出
-                if (typeof stdout === 'object' && stdout.mode === 'AGENT_NATIVE_FALLBACK') {
-                    console.log(`${colors.yellow}[!] 检测到处于 Agent-Native 平台模式 (agy 不可用: ${stdout.reason})。${colors.reset}`);
-                    console.log(`${colors.cyan}[*] 按照 REQ-01 规范，流程由主 Agent 直接接管 (Mode A/A')。关闭当前 CLI 编排器。${colors.reset}`);
-                    process.exit(0);
-                }
+请结合代码结构、控制流与状态机设计，回应以下 6 类固定假说：
+1. CWE-789 远端控制 allocation size
+2. CWE-125/787 远端控制解引用长度/索引
+3. CWE-416 异步对象生命周期竞态
+4. 跨进程信任边界破坏
+5. Exported component 鉴权缺失
+6. 多租户/owner 比对缺失
 
-                const hasYes = typeof stdout === 'string' && stdout.includes('YES');
-                const hasNo = typeof stdout === 'string' && stdout.includes('NO');
-                
-                let status = 'NEEDS_REVIEW';
-                if (hasYes && !hasNo) {
-                    status = 'REACHABLE';
-                } else if (hasNo && !hasYes) {
-                    status = 'UNREACHABLE';
-                }
-                
-                // 将结果写回内存 queue 中对应的索引起点
-                queue[index].status = status;
-                queue[index].verdict = stdout;
+必须为每个适用的假说给出明确结论：confirmed | reviewed_clean | not_applicable。
 
-                // Propagate verdict to identical candidates in the queue (Optimization 2)
-                const identicals = queue.filter(item => 
-                    item.file_path === cand.file_path && 
-                    item.line_number === cand.line_number && 
-                    item.cwe_id === cand.cwe_id && 
-                    item.status === "PENDING"
-                );
-                identicals.forEach(item => {
-                    item.status = status;
-                    item.verdict = `[Propagated from ID: ${cand.id}] ${stdout}`;
-                });
-                if (identicals.length > 0) {
-                    console.log(`${colors.green}[+] [ID: ${cand.id}] 判定结果自动传播至 ${identicals.length} 个相同的候选点。${colors.reset}`);
-                }
+【强制输出格式】
+如果确认存在漏洞: HYPOTHESIS_CONFIRMED: [假说名称] - [简短说明]
+如果审查无问题:   HYPOTHESIS_CLEAN: [假说名称] - [简短说明]`;
+}
 
-                if (status === 'REACHABLE') {
-                    console.log(`${colors.red}[!] [ID: ${cand.id}] 判定结果: REACHABLE (确认真实漏洞)${colors.reset}`);
-                } else if (status === 'UNREACHABLE') {
-                    console.log(`${colors.green}[✓] [ID: ${cand.id}] 判定结果: UNREACHABLE (安全阻断)${colors.reset}`);
-                } else {
-                    console.log(`${colors.yellow}[?] [ID: ${cand.id}] 判定结果: NEEDS_REVIEW (研判不确定/拒绝)${colors.reset}`);
-                }
-            } catch (err) {
-                console.error(`${colors.red}[!] [ID: ${cand.id}] 研判异常: ${err.message}${colors.reset}`);
-                queue[index].status = 'NEEDS_REVIEW';
-                queue[index].verdict = `ERROR: Execution failed: ${err.message}`;
-            }
+// ==================== --check-availability 子命令 ====================
+
+function checkAvailability() {
+    const cliName = detectAgentCli();
+    const versionCmd = cliName === 'claude' ? '--version' : '--version';
+    let reported = false;
+
+    const child = spawn(cliName, [versionCmd]);
+
+    child.on('error', (err) => {
+        console.log(JSON.stringify({
+            mode: 'AGENT_NATIVE_FALLBACK',
+            reason: `${cliName} CLI error: ${err.message}`,
+            instruction: '主 Agent 接管'
         }));
+        process.exit(0);
+    });
 
-        // 【安全落盘机制】：当前批次并发运行完，立即写盘，支持断点重启
-        fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2), 'utf8');
-        console.log(`\n${colors.cyan}[*] 批次 [Batch: ${batchNum}] 审计完毕，进度状态已落盘保存。${colors.reset}`);
+    child.stdout.on('data', (data) => {
+        if (reported) return;
+        reported = true;
+        console.log(JSON.stringify({
+            mode: `CLI_${cliName.toUpperCase()}`,
+            cli: cliName,
+            version: data.toString().trim(),
+            instruction: `可进入 CLI 编排模式, 由 run_workflow.js + ${cliName} 编排 R1/R3/R4`
+        }));
+        process.exit(0);
+    });
+
+    child.on('close', (code) => {
+        if (reported) return;
+        console.log(JSON.stringify({
+            mode: `CLI_${cliName.toUpperCase()}`,
+            cli: cliName,
+            exit_code: code,
+            instruction: `可进入 CLI 编排模式`
+        }));
+        process.exit(0);
+    });
+}
+
+// 入口短路: --check-availability
+if (process.argv.includes('--check-availability')) {
+    checkAvailability();
+}
+
+// ==================== 主工作流 ====================
+
+async function executeWorkflow(workspacePath) {
+    const cliName = detectAgentCli();
+    console.log(`${colors.cyan}[*] Reachable Critical Audit 工作流启动${colors.reset}`);
+    console.log(`${colors.cyan}[*] 检测到 CLI 环境: ${cliName} | 并发批大小: ${BATCH_SIZE} | 超时: ${TIMEOUT_MS}ms${colors.reset}`);
+
+    const scannerPath = path.join(__dirname, 'tools', 'ast_scanner.py');
+    const outputDir = path.join(workspacePath, '.audit_results');
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    // --- 阶段 3: 强制完整性断言校验 (Assert) ---
-    console.log(`\n==================================================`);
-    console.log(`${colors.cyan}[*] 阶段 3: 执行队列完整性审计断言校验...${colors.reset}`);
-    
-    // 重新从硬盘读取核对
-    const finalQueue = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
-    const unverifiedItems = finalQueue.filter(c => c.status === "PENDING");
+    const queuePath = path.join(outputDir, 'verify_queue.json');
+    const reportPath = path.join(outputDir, 'reachable_vulnerabilities_report.json');
 
-    if (unverifiedItems.length > 0) {
-        console.error(`${colors.red}[CRITICAL ERROR] 完整性校验失败！仍有 ${unverifiedItems.length} 个节点未被分析！${colors.reset}`);
-        unverifiedItems.forEach(item => {
-            console.error(`  - 未处理节点 ID: ${item.id} | File: ${item.file_path}:${item.line_number}`);
+    // 写入执行模式记录
+    fs.writeFileSync(path.join(outputDir, 'execution_mode.json'), JSON.stringify({
+        mode: `CLI_${cliName.toUpperCase()}`,
+        cli: cliName,
+        batch_size: BATCH_SIZE,
+        timeout_ms: TIMEOUT_MS,
+        detected_at: new Date().toISOString()
+    }, null, 2), 'utf8');
+
+    // --- 阶段 1: 扫描/加载候选队列 ---
+    let queueObj;
+    if (fs.existsSync(queuePath)) {
+        console.log(`${colors.yellow}[*] 发现已存在的队列文件，载入断点续传...${colors.reset}`);
+        queueObj = loadQueue(queuePath);
+    } else {
+        console.log(`${colors.blue}[*] 未发现历史队列，启动 AST 扫描...${colors.reset}`);
+        try {
+            execSync(`python3 "${scannerPath}" "${workspacePath}" "${outputDir}"`, { stdio: 'inherit' });
+            queueObj = loadQueue(queuePath);
+        } catch (error) {
+            console.error(`${colors.red}[Error] AST 扫描器执行失败. 流程终止。${colors.reset}`);
+            process.exit(1);
+        }
+    }
+
+    let queue = queueObj.candidates;
+    const pendingCandidates = queue.filter(c => c.status === "PENDING");
+    console.log(`${colors.green}[+] 队列: 总计 ${queue.length} 项, PENDING ${pendingCandidates.length} 项, 已完成 ${queue.length - pendingCandidates.length} 项${colors.reset}`);
+
+    if (pendingCandidates.length === 0) {
+        console.log(`${colors.green}[+] 所有候选点均已验证，直接进行报告汇总。${colors.reset}`);
+        compileReport(queue, reportPath, [], workspacePath);
+        return;
+    }
+
+    // --- 阶段 2: 批处理并发审计循环 ---
+    console.log(`${colors.blue}[*] 阶段 2: 启动 ${cliName} 子进程批处理并发研判...${colors.reset}`);
+
+    const pendingIndices = queue
+        .map((cand, index) => ({ cand, index }))
+        .filter(item => item.cand.status === "PENDING");
+
+    let totalVerified = 0;
+
+    for (let i = 0; i < pendingIndices.length; i += BATCH_SIZE) {
+        const batch = pendingIndices.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(pendingIndices.length / BATCH_SIZE);
+
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`${colors.yellow}[Batch ${batchNum}/${totalBatches}] 并发 ${batch.length} 个子进程 | 进度 ${totalVerified}/${pendingIndices.length}${colors.reset}`);
+        console.log(`${'='.repeat(60)}`);
+
+        // 并发执行当前批次
+        await Promise.all(batch.map(async ({ cand, index }) => {
+            console.log(`${colors.blue}  [${cand.id}] ${cand.cwe_id} ${path.basename(cand.file_path)}:${cand.line_number}${colors.reset}`);
+
+            const prompt = buildVerifyPrompt(cand);
+
+            try {
+                const stdout = await runAgentCmd(prompt);
+                const status = extractVerdict(stdout);
+
+                // 写回结果
+                queue[index].status = status;
+                queue[index].verdict = typeof stdout === 'string' ? stdout.slice(-2000) : String(stdout);
+                queue[index].verified_at = new Date().toISOString();
+
+                // 传播相同位置+CWE 的判定结果
+                let propagated = 0;
+                queue.forEach(item => {
+                    if (item.file_path === cand.file_path &&
+                        item.line_number === cand.line_number &&
+                        item.cwe_id === cand.cwe_id &&
+                        item.status === "PENDING") {
+                        item.status = status;
+                        item.verdict = `[Propagated from ${cand.id}]`;
+                        item.verified_at = new Date().toISOString();
+                        propagated++;
+                    }
+                });
+
+                const statusIcon = status === 'REACHABLE' ? `${colors.red}🔴` :
+                                   status === 'UNREACHABLE' ? `${colors.green}✅` :
+                                   `${colors.yellow}⚠️`;
+                const propMsg = propagated > 0 ? ` (+${propagated} propagated)` : '';
+                console.log(`  ${statusIcon} [${cand.id}] → ${status}${propMsg}${colors.reset}`);
+
+            } catch (err) {
+                console.error(`${colors.red}  ❌ [${cand.id}] 异常: ${err.message.slice(0, 120)}${colors.reset}`);
+                queue[index].status = 'NEEDS_REVIEW';
+                queue[index].verdict = `ERROR: ${err.message.slice(0, 500)}`;
+                queue[index].verified_at = new Date().toISOString();
+            }
+
+            totalVerified++;
+        }));
+
+        // 每批次立即落盘
+        saveQueue(queuePath, queueObj.raw, queue);
+        console.log(`${colors.cyan}  [落盘] Batch ${batchNum} 完成，已安全写入磁盘。${colors.reset}`);
+    }
+
+    // --- 阶段 3: 完整性 Assert ---
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`${colors.cyan}[Assert] 执行完整性校验...${colors.reset}`);
+
+    const { candidates: finalQueue } = loadQueue(queuePath);
+    const unverified = finalQueue.filter(c => c.status === "PENDING");
+
+    if (unverified.length > 0) {
+        console.error(`${colors.red}[CRITICAL] 完整性校验失败！仍有 ${unverified.length} 个 PENDING 节点！${colors.reset}`);
+        unverified.slice(0, 20).forEach(item => {
+            console.error(`  - ${item.id} | ${item.file_path}:${item.line_number}`);
         });
+        if (unverified.length > 20) console.error(`  ... 及另外 ${unverified.length - 20} 项`);
         process.exit(2);
     }
 
-    console.log(`${colors.green}[✓] 完整性校验通过：所有 ${finalQueue.length} 个安全问题已100%分析归档，无任何跳过。${colors.reset}`);
+    const stats = {
+        total: finalQueue.length,
+        reachable: finalQueue.filter(c => c.status === 'REACHABLE').length,
+        unreachable: finalQueue.filter(c => c.status === 'UNREACHABLE').length,
+        needs_review: finalQueue.filter(c => c.status === 'NEEDS_REVIEW').length,
+    };
+    console.log(`${colors.green}[✓] Assert 通过: 全部 ${stats.total} 项已验证 (REACHABLE=${stats.reachable}, UNREACHABLE=${stats.unreachable}, NEEDS_REVIEW=${stats.needs_review})${colors.reset}`);
 
-    // --- 阶段 4: 启发式架构感知与业务逻辑 Subagent 深度深钻 (REQ-14 ~ REQ-16) ---
-    console.log(`\n==================================================`);
-    console.log(`${colors.yellow}[*] 阶段 4: 启动启发式项目感知与业务逻辑 Subagent 深度深钻 (REQ-14 ~ REQ-16)...${colors.reset}`);
-    
-    // REQ-14: 启发式项目架构与业务域自动感知并落盘
+    // --- 阶段 4: 业务逻辑深钻 (REQ-14 ~ REQ-16) ---
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`${colors.yellow}[R4] 启发式业务逻辑深钻...${colors.reset}`);
+
     const domainProfile = inferProjectDomain(workspacePath);
     const archViewPath = path.join(outputDir, 'architecture_view.json');
     fs.writeFileSync(archViewPath, JSON.stringify(domainProfile, null, 2), 'utf8');
-    console.log(`${colors.cyan}[+] [REQ-14] 项目架构与业务域推断写入 ${archViewPath}: ${domainProfile.domainName}${colors.reset}`);
+    console.log(`${colors.cyan}[R4] 项目域: ${domainProfile.domainName}${colors.reset}`);
 
-    // REQ-15: 固化 6 类业务威胁假说推演与锚点构建
     const highRiskFiles = findHighRiskModules(workspacePath);
     const autonomousFindings = [];
 
     if (highRiskFiles.length === 0) {
-        console.log(`${colors.green}[✓] 未发现典型高危业务逻辑模块，跳过自主逻辑探索。${colors.reset}`);
+        console.log(`${colors.green}[R4] 未发现典型高危业务逻辑模块，跳过。${colors.reset}`);
     } else {
-        console.log(`${colors.blue}[*] [REQ-15] 假说推演匹配到以下 ${highRiskFiles.length} 个高危业务控制锚点，开始调度 Subagent 并行深钻：${colors.reset}`);
+        console.log(`${colors.blue}[R4] 发现 ${highRiskFiles.length} 个高危锚点:${colors.reset}`);
         highRiskFiles.forEach(f => console.log(`  - ${f}`));
 
-        // REQ-16: 业务逻辑专项 Subagent 并行深钻 (6类固化假说)
         const autonomousBatchSize = 3;
         for (let j = 0; j < highRiskFiles.length; j += autonomousBatchSize) {
             const batchFiles = highRiskFiles.slice(j, j + autonomousBatchSize);
             await Promise.all(batchFiles.map(async (filePath) => {
-                console.log(`${colors.blue}[*] [REQ-16 Subagent] 开始深钻模块: ${filePath}...${colors.reset}`);
-                
-                const prompt = `
-你是一个资深安全审计专家。我们现在要对项目 [${domainProfile.domainName}] 中的高危业务模块进行【6类固化业务逻辑假说深钻 (REQ-15 ~ REQ-16)】。
-目标文件路径：${filePath}
-项目领域背景：${domainProfile.summary}
+                console.log(`${colors.blue}  [R4 Subagent] 深钻: ${filePath}...${colors.reset}`);
 
-请你结合代码结构、控制流与状态机设计，回应以下 6 类固定假说：
-1. CWE-789 远端控制 allocation size: 远端字段 * sizeof 进 *alloc/new[]/osi_*alloc 无上限
-2. CWE-125/787 远端控制解引用长度/索引: 远端字段进数组下标/memcpy 长度/STREAM_TO_* 无边界检查
-3. CWE-416 异步对象生命周期竞态: 异步回调/队列/alarm 持 Unretained(this)/raw ptr, 对象先释放
-4. 跨进程信任边界破坏: 远端输入拼字符串进 ContentResolver.query/Binder/Intent 且参数化字段 null
-5. Exported component 鉴权缺失: manifest exported=true 且无 permission
-6. 多租户/owner 比对缺失: 写/删/查资源方法体无 session vs owner 相等性比对
+                const prompt = buildR4Prompt(domainProfile, filePath);
 
-必须为每个适用的假说给出明确结论：confirmed (已坐实) | reviewed_clean (已审查无问题) | not_applicable (不适用)。
-
-如果确认存在漏洞，请在回复中包含: HYPOTHESIS_CONFIRMED: [假说名称] - [简短说明]
-如果审查无问题，包含: HYPOTHESIS_CLEAN: [假说名称] - [简短说明]
-`;
-
-                const args = ['--dangerously-skip-permissions', '--prompt', prompt];
                 try {
-                    const stdout = await runAgentCmd(args);
-                    if (typeof stdout === 'object' && stdout.mode === 'AGENT_NATIVE_FALLBACK') {
-                        return;
-                    }
-                    const confirmedMatch = stdout.match(/HYPOTHESIS_CONFIRMED:\s*([^\r\n]+)/);
-                    const cleanMatch = stdout.match(/HYPOTHESIS_CLEAN:\s*([^\r\n]+)/);
+                    const stdout = await runAgentCmd(prompt);
+                    const result = extractHypothesisVerdict(stdout);
 
-                    if (confirmedMatch) {
-                        console.log(`${colors.red}[!] [Subagent 深钻] 模块 ${filePath} 判定存在漏洞: ${confirmedMatch[1].trim()}${colors.reset}`);
-                        autonomousFindings.push({
-                            file_path: filePath,
-                            origin: "R4",
-                            status: 'REACHABLE',
-                            verdict: 'confirmed',
-                            summary: confirmedMatch[1].trim(),
-                            evidence: stdout
-                        });
-                    } else if (cleanMatch) {
-                        console.log(`${colors.green}[✓] [Subagent 深钻] 模块 ${filePath} 判定安全: ${cleanMatch[1].trim()}${colors.reset}`);
-                        autonomousFindings.push({
-                            file_path: filePath,
-                            origin: "R4",
-                            status: 'UNREACHABLE',
-                            verdict: 'reviewed_clean',
-                            summary: cleanMatch[1].trim(),
-                            evidence: stdout
-                        });
-                    } else {
-                        console.log(`${colors.yellow}[?] [Subagent 深钻] 模块 ${filePath} 判定未决${colors.reset}`);
-                        autonomousFindings.push({
-                            file_path: filePath,
-                            origin: "R4",
-                            status: 'NEEDS_REVIEW',
-                            verdict: 'needs_review',
-                            summary: '未明确输出假说结论，需要人工复核。',
-                            evidence: stdout
-                        });
-                    }
+                    const icon = result.status === 'REACHABLE' ? `${colors.red}🔴` : `${colors.green}✅`;
+                    console.log(`  ${icon} [R4] ${filePath} → ${result.status}: ${result.summary}${colors.reset}`);
+
+                    autonomousFindings.push({
+                        file_path: filePath,
+                        origin: "R4",
+                        status: result.status,
+                        verdict: result.verdict || result.status.toLowerCase(),
+                        summary: result.summary,
+                        evidence: typeof stdout === 'string' ? stdout.slice(-2000) : String(stdout)
+                    });
                 } catch (err) {
-                    console.error(`${colors.red}[!] [Subagent 深钻] 模块 ${filePath} 审计异常: ${err.message}${colors.reset}`);
+                    console.error(`${colors.red}  ❌ [R4] ${filePath} 异常: ${err.message.slice(0, 120)}${colors.reset}`);
                     autonomousFindings.push({
                         file_path: filePath,
                         origin: "R4",
                         status: 'NEEDS_REVIEW',
                         verdict: 'execution_failed',
-                        summary: `ERROR: Execution failed: ${err.message}`,
+                        summary: `ERROR: ${err.message.slice(0, 200)}`,
                         evidence: `ERROR: ${err.message}`
                     });
                 }
             }));
         }
 
-        // 保存自主探索的中间结果
         const autonomousPath = path.join(outputDir, 'autonomous_logical_findings.json');
         fs.writeFileSync(autonomousPath, JSON.stringify(autonomousFindings, null, 2), 'utf8');
-        console.log(`${colors.green}[+] 启发式业务逻辑深钻结束，中间结果已落盘：${autonomousPath}${colors.reset}`);
     }
 
     compileReport(finalQueue, reportPath, autonomousFindings, workspacePath);
 }
 
-// REQ-14 启发式项目架构与业务域感知函数
+// ==================== 项目域感知 ====================
+
 function inferProjectDomain(workspacePath) {
     let domainName = "通用开源应用/服务";
     let summary = "常规代码库，包含标准模块交互。";
 
-    // 检查元数据文件
     const hasAndroid = fs.existsSync(path.join(workspacePath, 'AndroidManifest.xml'));
-    const hasBluetooth = fs.existsSync(path.join(workspacePath, 'system', 'btif')) || fs.existsSync(path.join(workspacePath, 'android', 'app', 'src', 'com', 'android', 'bluetooth'));
-    const hasProto = fs.existsSync(path.join(workspacePath, 'proto')) || fs.existsSync(path.join(workspacePath, 'system', 'gd'));
+    const hasBluetooth = fs.existsSync(path.join(workspacePath, 'system', 'btif')) ||
+                         fs.existsSync(path.join(workspacePath, 'android', 'app', 'src', 'com', 'android', 'bluetooth'));
+    const hasKernel = fs.existsSync(path.join(workspacePath, 'Kconfig')) &&
+                      fs.existsSync(path.join(workspacePath, 'kernel'));
+    const hasMakefile = fs.existsSync(path.join(workspacePath, 'Makefile'));
 
-    if (hasBluetooth || (hasAndroid && workspacePath.toLowerCase().includes('bluetooth'))) {
+    if (hasKernel) {
+        domainName = "Linux Kernel / 系统级 C 代码库";
+        summary = "包含内核子系统（net/drivers/fs/mm 等），C 语言为主，强依赖内核内存管理与锁机制。";
+    } else if (hasBluetooth || (hasAndroid && workspacePath.toLowerCase().includes('bluetooth'))) {
         domainName = "Android 原生蓝牙协议栈与系统服务 (Bluetooth Module)";
-        summary = "包含 HCI、L2CAP、SDP、GATT、HFP、OPP、MAP 等底层 C++ 协议栈与 Android 上层 Java IPC 服务，强依赖状态机与 Binder 访问控制。";
+        summary = "包含 HCI、L2CAP、SDP、GATT、HFP、OPP、MAP 等底层 C++ 协议栈与 Android 上层 Java IPC 服务。";
     } else if (hasAndroid) {
         domainName = "Android 系统服务 / 应用 (Android App/Service)";
         summary = "包含 Activity/Service/Provider 组件交互、Binder IPC 及权限拦截。";
@@ -462,6 +566,15 @@ function inferProjectDomain(workspacePath) {
     } else if (fs.existsSync(path.join(workspacePath, 'Cargo.toml'))) {
         domainName = "Rust 系统级模块/应用";
         summary = "基于 Rust 语言的底层高性能服务与内存安全管控。";
+    } else if (fs.existsSync(path.join(workspacePath, 'go.mod'))) {
+        domainName = "Go 语言服务/应用";
+        summary = "基于 Go 语言的网络服务或系统工具。";
+    } else if (fs.existsSync(path.join(workspacePath, 'pom.xml')) || fs.existsSync(path.join(workspacePath, 'build.gradle'))) {
+        domainName = "Java/Spring 企业应用";
+        summary = "基于 Java/Spring 的企业级 Web 应用或微服务。";
+    } else if (fs.existsSync(path.join(workspacePath, 'requirements.txt')) || fs.existsSync(path.join(workspacePath, 'setup.py'))) {
+        domainName = "Python 应用/服务";
+        summary = "基于 Python 的 Web 框架(Django/Flask)或数据处理工具。";
     }
 
     return { domainName, summary };
@@ -475,46 +588,41 @@ function findHighRiskModules(workspacePath) {
         'admin', 'manage', 'role', 'permission',
         'user', 'profile', 'account', 'service', 'provider', 'manager'
     ];
-    const ignoreDirs = ['node_modules', '.git', '.audit_results', 'scratch', 'target', 'build', 'dist'];
+    const ignoreDirs = ['node_modules', '.git', '.audit_results', 'scratch', 'target', 'build', 'dist', 'vendor', 'third_party'];
 
-    function walk(dir) {
+    function walk(dir, depth) {
+        if (depth > 5) return; // 限制递归深度
         let list;
-        try {
-            list = fs.readdirSync(dir);
-        } catch (e) {
-            return;
-        }
+        try { list = fs.readdirSync(dir); } catch (e) { return; }
+
         list.forEach(file => {
             const fullPath = path.join(dir, file);
             let stat;
-            try {
-                stat = fs.statSync(fullPath);
-            } catch (e) {
-                return;
-            }
+            try { stat = fs.statSync(fullPath); } catch (e) { return; }
+
             if (stat && stat.isDirectory()) {
                 if (!ignoreDirs.some(ignored => file.includes(ignored))) {
-                    walk(fullPath);
+                    walk(fullPath, depth + 1);
                 }
             } else {
                 const ext = path.extname(file).toLowerCase();
-                const validExts = ['.java', '.cpp', '.cc', '.c', '.h', '.py', '.go', '.rs', '.js', '.ts', '.cs', '.php', '.rb', '.swift', '.kt', '.scala', '.sh', '.pl', '.pm', '.ps1'];
+                const validExts = ['.java', '.cpp', '.cc', '.c', '.h', '.py', '.go', '.rs', '.js', '.ts', '.cs', '.php', '.rb', '.swift', '.kt'];
                 if (validExts.includes(ext)) {
-                    const relativePath = path.relative(workspacePath, fullPath);
                     const nameLower = file.toLowerCase();
                     if (keywords.some(kw => nameLower.includes(kw))) {
-                        highRiskFiles.push(relativePath);
+                        highRiskFiles.push(path.relative(workspacePath, fullPath));
                     }
                 }
             }
         });
     }
 
-    walk(workspacePath);
-    return highRiskFiles.slice(0, 6); // 最多选择前 6 个文件
+    walk(workspacePath, 0);
+    return highRiskFiles.slice(0, 6);
 }
 
-// REQ-10 完整的量化度量报告生成 (含 Sink Discovery Rate, False Negative Risk, origin_breakdown)
+// ==================== 报告生成 ====================
+
 function compileReport(queue, reportJsonPath, autonomousFindings = [], workspacePath = '.') {
     const reachable = queue.filter(c => c.status === 'REACHABLE');
     const unreachable = queue.filter(c => c.status === 'UNREACHABLE');
@@ -529,16 +637,13 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
     const r4Count = queue.filter(c => c.origin === 'R4').length + autonomousFindings.length;
     const r4Reachable = autonomousFindings.filter(f => f.status === 'REACHABLE').length;
 
-    const coverageRate = total > 0 ? ((verifiedTotal / total) * 100).toFixed(2) : "0.00";
-    const reachabilityRate = verifiedTotal > 0 ? ((reachable.length / verifiedTotal) * 100).toFixed(2) : "0.00";
-    const noiseReductionRate = verifiedTotal > 0 ? ((unreachable.length / verifiedTotal) * 100).toFixed(2) : "0.00";
-    const sinkDiscoveryRate = total > 0 ? ((l0Count / total) * 100).toFixed(2) : "0.00";
-    const falseNegativeRisk = total > 0 ? (((l1Count + r4Reachable) / total) * 100).toFixed(2) : "0.00";
+    const pct = (n, d) => d > 0 ? ((n / d) * 100).toFixed(2) : "0.00";
 
     const reportContent = {
         report_meta: {
             generated_at: new Date().toISOString(),
-            schema_version: "2.0"
+            schema_version: "2.0",
+            cli_used: detectAgentCli()
         },
         quantified_metrics: {
             total_candidates: total,
@@ -546,34 +651,23 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
             reachable: reachable.length,
             unreachable: unreachable.length,
             needs_review: needsReview.length,
-            rule_coverage_rate_pct: `${coverageRate}%`,
-            reachability_rate_pct: `${reachabilityRate}%`,
-            noise_reduction_rate_pct: `${noiseReductionRate}%`,
-            sink_discovery_rate_pct: `${sinkDiscoveryRate}%`,
-            false_negative_risk_pct: `${falseNegativeRisk}%`,
-            origin_breakdown: {
-                L0: l0Count,
-                L1: l1Count,
-                L2: l2Count,
-                R4: r4Count
-            }
+            rule_coverage_rate_pct: `${pct(verifiedTotal, total)}%`,
+            reachability_rate_pct: `${pct(reachable.length, verifiedTotal)}%`,
+            noise_reduction_rate_pct: `${pct(unreachable.length, verifiedTotal)}%`,
+            sink_discovery_rate_pct: `${pct(l0Count, total)}%`,
+            false_negative_risk_pct: `${pct(l1Count + r4Reachable, total)}%`,
+            origin_breakdown: { L0: l0Count, L1: l1Count, L2: l2Count, R4: r4Count }
         },
         reachable_vulnerabilities: reachable.map(c => ({
-            id: c.id,
-            origin: c.origin || 'L0',
-            language: c.language,
-            cwe_id: c.cwe_id || c.sink_type,
-            category: c.category,
-            type: c.type,
+            id: c.id, origin: c.origin || 'L0', language: c.language,
+            cwe_id: c.cwe_id || c.sink_type, category: c.category, type: c.type,
             source_file: c.source_file || c.file_path,
             source_line: c.source_line || c.line_number,
             reachability_type: c.reachability_type || 'DIRECT',
-            sink_content: c.sink_content,
-            evidence: c.verdict
+            sink_content: c.sink_content, evidence: c.verdict
         })),
         needs_review: needsReview.map(c => ({
-            id: c.id,
-            origin: c.origin || 'L0',
+            id: c.id, origin: c.origin || 'L0',
             source_file: c.source_file || c.file_path,
             source_line: c.source_line || c.line_number,
             sink_type: c.sink_type || c.cwe_id,
@@ -581,66 +675,52 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
             reason: c.verdict || "研判拒绝或返回模糊"
         })),
         autonomous_findings: autonomousFindings.map(f => ({
-            file_path: f.file_path,
-            origin: "R4",
-            status: f.status,
-            summary: f.summary,
-            evidence: f.evidence
+            file_path: f.file_path, origin: "R4", status: f.status,
+            summary: f.summary, evidence: f.evidence
         }))
     };
 
-    // 写出 JSON 报告
     fs.writeFileSync(reportJsonPath, JSON.stringify(reportContent, null, 2), 'utf8');
 
-    // 写出 Markdown 报告 (REQ-10)
+    // Markdown 报告
     const reportMdPath = path.join(path.dirname(reportJsonPath), 'reachable_vulnerabilities_report.md');
-    let mdText = `# Reachable Critical Audit 安全审计报告\n\n`;
-    mdText += `生成时间: ${reportContent.report_meta.generated_at}\n\n`;
-    mdText += `## 📊 量化审计指标\n\n`;
-    mdText += `| 指标名称 | 数值 | 说明 |\n`;
-    mdText += `|---|---|---|\n`;
-    mdText += `| 候选点总数 (Total) | ${total} | 覆盖 L0/L1/L2/R4 所有来源 |\n`;
-    mdText += `| 已验证候选数 (Verified) | ${verifiedTotal} | 推进至 REACHABLE / UNREACHABLE 状态点数 |\n`;
-    mdText += `| 确认可达漏洞数 (Reachable) | ${reachable.length} | 存在真实可利用威胁的漏洞点 |\n`;
-    mdText += `| 安全阻断噪音数 (Unreachable) | ${unreachable.length} | 被白名单/类型转换隔断的噪音 |\n`;
-    mdText += `| 待人工复核数 (Needs Review) | ${needsReview.length} | 研判未决或被阻断的节点 |\n`;
-    mdText += `| **Rule Coverage Rate** | **${coverageRate}%** | 已验证候选 / 总候选 |\n`;
-    mdText += `| **Reachability Rate** | **${reachabilityRate}%** | 可达漏洞占比 |\n`;
-    mdText += `| **Noise Reduction Rate** | **${noiseReductionRate}%** | 噪音降噪率 |\n`;
-    mdText += `| **Sink Discovery Rate** | **${sinkDiscoveryRate}%** | L0 规则召回能力（越接近 100% 规则越完备） |\n`;
-    mdText += `| **False Negative Risk** | **${falseNegativeRisk}%** | 规则盲区指标（高占比需补齐 L0 规则） |\n\n`;
-    mdText += `### 候选来源分布 (Origin Breakdown)\n\n`;
-    mdText += `- **L0 (预设 CodeQL 清洗规则)**: ${l0Count}\n`;
-    mdText += `- **L1 (项目 Wrapper 框架扩展)**: ${l1Count}\n`;
-    mdText += `- **L2 (非预设语言 fallback)**: ${l2Count}\n`;
-    mdText += `- **R4 (启发式业务逻辑深钻)**: ${r4Count}\n\n`;
+    let md = `# Reachable Critical Audit Report\n\n`;
+    md += `Generated: ${reportContent.report_meta.generated_at} | CLI: ${reportContent.report_meta.cli_used}\n\n`;
+    md += `## Metrics\n\n`;
+    md += `| Metric | Value |\n|---|---|\n`;
+    md += `| Total Candidates | ${total} |\n`;
+    md += `| Verified | ${verifiedTotal} |\n`;
+    md += `| **REACHABLE** | **${reachable.length}** |\n`;
+    md += `| UNREACHABLE | ${unreachable.length} |\n`;
+    md += `| NEEDS_REVIEW | ${needsReview.length} |\n`;
+    md += `| Coverage Rate | ${pct(verifiedTotal, total)}% |\n`;
+    md += `| Noise Reduction | ${pct(unreachable.length, verifiedTotal)}% |\n\n`;
 
     if (reachable.length > 0) {
-        mdText += `## 🚨 确认真实漏洞 (Reachable Vulnerabilities)\n\n`;
+        md += `## 🚨 Reachable Vulnerabilities\n\n`;
         reachable.forEach(c => {
-            mdText += `### [${c.id}] ${c.cwe_id || c.sink_type} - ${c.category}\n`;
-            mdText += `- **位置**: \`${c.source_file || c.file_path}:${c.source_line || c.line_number}\`\n`;
-            mdText += `- **来源**: ${c.origin || 'L0'}\n`;
-            mdText += `- **可达类型**: ${c.reachability_type || 'DIRECT'}\n`;
-            mdText += `- **Sink 代码**: \`${c.sink_content}\`\n`;
-            mdText += `- **归因分析**: ${c.verdict}\n\n`;
+            md += `### [${c.id}] ${c.cwe_id || c.sink_type}\n`;
+            md += `- **File**: \`${c.source_file || c.file_path}:${c.source_line || c.line_number}\`\n`;
+            md += `- **Sink**: \`${c.sink_content}\`\n`;
+            md += `- **Evidence**: ${(c.verdict || '').slice(0, 500)}\n\n`;
         });
     }
 
     if (needsReview.length > 0) {
-        mdText += `## ⚠️ 待复核节点 (Needs Review)\n\n`;
-        needsReview.forEach(c => {
-            mdText += `- **[${c.id}]** \`${c.source_file || c.file_path}:${c.source_line || c.line_number}\` (${c.sink_type || c.cwe_id}) — 原因: ${c.verdict || "研判拒绝"}\n`;
+        md += `## ⚠️ Needs Review\n\n`;
+        needsReview.slice(0, 50).forEach(c => {
+            md += `- **[${c.id}]** \`${c.source_file || c.file_path}:${c.source_line || c.line_number}\` (${c.sink_type || c.cwe_id})\n`;
         });
+        if (needsReview.length > 50) md += `\n... and ${needsReview.length - 50} more\n`;
     }
 
-    fs.writeFileSync(reportMdPath, mdText, 'utf8');
-    console.log(`${colors.green}[+] 审计报告已生成:\n  - JSON: ${reportJsonPath}\n  - Markdown: ${reportMdPath}${colors.reset}`);
+    fs.writeFileSync(reportMdPath, md, 'utf8');
+    console.log(`${colors.green}[+] 报告已生成:\n  - JSON: ${reportJsonPath}\n  - Markdown: ${reportMdPath}${colors.reset}`);
 }
 
+// ==================== 入口 ====================
+
 const targetDir = process.argv[2] || '.';
-// 入口守卫: --check-availability 时由 checkAvailability 处理,不进入 executeWorkflow
 if (!process.argv.includes('--check-availability')) {
     executeWorkflow(targetDir);
 }
-
