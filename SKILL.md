@@ -75,7 +75,7 @@ Skill 启动后**第一步必须**执行以下三件事，任何一步失败即 
 
 ## 🔍 R1.5：框架感知扩展（L1）— *新增阶段*
 
-R1 完成后必须执行（**强制触发条件**：R1 在项目主体语言上命中数为 0 且项目源文件数 > 500 时，R1.5 不可跳过 — 这是 pre-v2 两次漏报的根因补救）。
+R1 完成后**必须无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 规则（CodeQL 清洗的函数签名），R1.5 通过框架感知 wrapper_detection 捕获项目自定义的封装 API、IPC 边界和跨进程入口。两者覆盖不同的攻击面，不可互相替代。即使 R1 在目标语言上命中率很高，框架感知扩展仍会发现 L0 规则未覆盖的项目特有 wrapper、自定义封装函数、内部 IPC 边界。该阶段不可跳过。
 
 1. **加载 wrapper_detection**：从 `security_profiles.json` 的 `wrapper_detection.<lang>` 段加载项目 wrapper 识别模式。例如：
    - C++: `allocator_pattern` (osi_*/`*alloc*`) / `parser_macros` (STREAM_TO_*/`*_TO_STREAM`) / `lifecycle` (`*_delete`/`*::reset`) / `async_ownership` (`*::Unretained`)
@@ -110,21 +110,23 @@ R1 完成后必须执行（**强制触发条件**：R1 在项目主体语言上�
 (无 PENDING 残留，exit 0)
 ```
 
-### 第一步：自底向上（Bottom-Up）追踪调用链
+### 第一步：自底向上（Bottom-Up）追踪调用链（语言无关）
 对每个候选 sink，使用 `grep` / `Grep` 工具反向查找调用者（Callers）：
-1. 找出谁调用了当前函数，及传入参数如何赋值。
-2. 逐层逆向往上：`Sink` ← `Caller_L1` ← `Caller_L2` ← ... ← `Controller_Entry`。
-3. **多态穿透**：遇接口/抽象类必须搜索所有具体实现类继续回溯。
+1. **强制最小深度 3 层**：`Sink` ← `Caller_L1` ← `Caller_L2`。不足 3 层必须继续向上搜索。
+2. 逐层逆向往上直到追溯到外部输入源（网络请求/文件读取/用户输入/IPC 调用/HCI 事件等）。
+3. **多态穿透**：遇接口/抽象类/特征(trait)/虚函数必须搜索所有具体实现类继续回溯。
 
-### 第二步：跨边界 sink 终结（REQ-19，*新增*）
-调用链到达以下边界时，**边界即 sink**，不要求在当前仓库内闭环追溯外部实现：
+### 第二步：跨边界 sink 终结（REQ-19，语言无关）
+调用链到达任何进程/模块/IPC 边界时，**边界即 sink**，不要求在当前仓库内闭环追溯外部实现：
 
-| 边界类型 | 触发 API | 判定 |
+| 边界类型 | 典型 API（语言示例） | 判定 |
 |---|---|---|
-| 跨进程 IPC | `ContentResolver.query(uri, ..., selection, selectionArgs, ...)` | `selection` 含拼接 OR `selectionArgs=null` → `REACHABLE_ACROSS_BOUNDARY`；强制 `?` 占位 + 绑定 → `UNREACHABLE` |
-| 跨 DSO | 调用外部动态库导出函数且无源码 | 自由文本参数含外部输入 → `REACHABLE_ACROSS_BOUNDARY` |
-| 跨 Provider authority | URI authority 切换到第三方 ContentProvider | 同 ContentResolver 规则 |
-| Binder transact / Intent extras | 跨进程调用携带自由文本 | 自由文本含外部输入 → `REACHABLE_ACROSS_BOUNDARY` |
+| 跨进程 IPC | Java: `ContentResolver.query`/`Binder.transact`/`sendBroadcast` | 自由文本（selection/command/extra）含拼接 OR 参数化字段为 null → `REACHABLE_ACROSS_BOUNDARY`；强制 `?` 占位 + 绑定 → `UNREACHABLE` |
+| 跨 DSO/FFI | C/C++: `dlopen`/dlsym 外部库；Rust: `extern "C"` FFI | 自由文本参数含外部输入 → `REACHABLE_ACROSS_BOUNDARY` |
+| 跨 Provider authority | Java: URI authority 切换到第三方 ContentProvider | 同 ContentResolver 规则 |
+| 跨进程调用携带自由文本 | Java: `Intent.putExtra`/`Bundle`；C/Python: `write`/`send` 到 IPC socket | 自由文本含外部输入 → `REACHABLE_ACROSS_BOUNDARY` |
+| 子进程执行 | Python: `subprocess.Popen`/`os.system`；JS: `child_process.exec`；C: `system`/`popen` | 命令字符串含外部输入拼接 → `REACHABLE_ACROSS_BOUNDARY` |
+| 动态代码执行 | Python: `eval`/`exec`；JS: `eval`/`Function`；Java: `MethodHandle.invoke` | 代码字符串含外部输入 → `REACHABLE_ACROSS_BOUNDARY` |
 
 ### 第三步：可达性约束验证
 回溯过程中分析入参是否被截断或净化：
@@ -217,10 +219,10 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
 
 ## 📋 附录 A：子智能体任务书模板（三模式共用）
 
-### A.1 vulnerability-verifier 任务书
+### A.1 vulnerability-verifier 任务书（语言无关通用版本）
 
 ```
-你是一个 vulnerability-verifier 子智能体。
+你是一个 vulnerability-verifier 子智能体。你必须通过逆向数据流追踪确定候选 sink 点是否外部可控。
 
 任务上下文:
 - 目标项目: <path>
@@ -229,35 +231,51 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
 - 上下文摘要: <5 行内的关键信息: sink file:line, sink 调用, 参数来源候选项>
 
 任务:
-1. 以 sink 为终点, 用 grep/Grep 反向查找所有 Callers, 逐层向上回溯
-   构建调用链 Sink <- Caller_L1 <- ... <- Source
-2. 遇接口/抽象类必须穿透到所有具体实现类继续回溯
-3. 调用链到达跨进程 IPC / 跨 DSO / 跨 Provider authority 边界时, 按以下规则判定:
-   - ContentResolver.query/Binder.transact/Intent extras 边界 API
-   - 若自由文本参数(selection/command)含外部输入拼接 OR 参数化字段(selectionArgs)缺省为 null
-     → verdict=REACHABLE, reachability_type=ACROSS_BOUNDARY, 不要求追溯外部实现
-   - 若强制参数化(? 占位 + 绑定) → 阻断, UNREACHABLE
-4. 调用链中遇到无法绕过的强类型转换/白名单/参数化绑定/if (offset+N>p_pkt_end) 显式边界检查
-   → verdict=UNREACHABLE, 记录 blocking_point file:line
-5. **C/C++ 路径覆盖要求**（减少状态机误判）:
-   - 对每个 Sink 点, 列出所有到达该点的调用路径（可能有多个 Caller）
-   - 对每条路径上的边界检查 `if (offset+N > p_pkt_end)` 或类似校验:
-     - 验证检查范围是否覆盖攻击者可控制的所有入参维度
-     - 如果入参维度多于检查维度 → 路径仍然 REACHABLE
-   - 对状态机（switch/state machine）场景, 标注当前分析覆盖了哪些状态,
-     未覆盖的状态需注明可能遗漏
-6. 若无法明确判定 → verdict=NEEDS_REVIEW (不允许默认判定)
+1. **强制调用链回溯（最小深度 3 层）**:
+   - 以 sink 为终点，用 grep/Grep 反向查找所有直接调用者（Caller_L1）
+   - 对每个 Caller_L1，追踪其参数来源找到 Caller_L2
+   - 继续向上直到追溯到外部输入源（网络请求/文件读取/用户输入/Binder IPC/蓝牙 HCI 事件等）
+   - **输出 call_chain 必须包含至少 Sink ← Caller_L1 ← Caller_L2 三层，不足 3 层必须向上继续搜索**
+   
+2. **多态穿透**: 遇接口/抽象类/虚函数，必须搜索所有具体实现类继续回溯
+
+3. **跨边界判定（语言无关）**:
+   - 调用链到达进程边界/IPC/跨模块调用时，边界即 sink
+   - 若边界 API 的自由文本参数来自外部输入拼接，判定 REACHABLE_ACROSS_BOUNDARY
+   - 若强制参数化/白名单校验/类型安全约束，阻断 UNREACHABLE
+   - 对 Java: ContentResolver.query/Binder.transact/Intent/sendBroadcast
+   - 对 C/C++: 外部动态库调用/IPC write/sendmsg
+   - 对 Python/JS: exec/eval/subprocess 调用
+
+4. **阻断检测（语言无关）**:
+   - 强类型转换（如 `int(value)`、`(uint16_t)` 掩码 `& 0xFF`）
+   - 白名单校验、参数化绑定（`?` 占位符）、边界检查（`if (offset + len <= total)`）
+   - 任何这些阻断点记录为 `blocking_point`，判定 UNREACHABLE
+   - **关键**: 阻断必须覆盖所有攻击者可控制维度。如果参数有多个维度但只检查了部分，仍为 REACHABLE
+
+5. **路径覆盖要求（语言无关）**:
+   - 对每个 Sink 点，列出所有到达该点的调用路径
+   - 对每条路径上的阻断/校验，验证其是否覆盖了攻击者可控的所有入参维度
+   - 若存在多条路径，只要有一条路径无阻断 → 该点 REACHABLE
+   - 对状态机（switch/match/state pattern）场景标注当前覆盖的状态
+
+6. **若无法明确判定** → verdict=NEEDS_REVIEW（不允许默认判定或静默丢弃）
 
 输出格式(强制 JSON, 不要其他文字):
 {
   "id": "<id>",
   "verdict": "REACHABLE | UNREACHABLE | NEEDS_REVIEW",
   "reachability_type": "DIRECT | ACROSS_BOUNDARY",
-  "call_chain": ["file:line", "file:line", ...],
+  "call_chain": ["file:line:function", "file:line:function", "file:line:function", ...],
+  "call_chain_depth": <int>,
   "blocking_point": "file:line / null",
-  "evidence": "<一段说明>",
+  "path_count": <int>,
+  "paths_analyzed": ["path1 description", ...],
+  "evidence": "<一段说明，包含调用链和每层的数据流分析>",
   "cwe": ["CWE-xxx"]
 }
+
+**质量门禁**: call_chain_depth < 3 的输出将被标记为 NEEDS_REVIEW 并退回重新分析。
 ```
 
 ### A.2 business-logic-verifier 任务书

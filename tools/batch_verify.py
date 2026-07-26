@@ -37,7 +37,8 @@ import sys
 import glob
 
 BATCH_SIZE = 4
-REQUIRED_VERDICT_KEYS = {"verdict", "reachability_type", "call_chain", "evidence"}
+REQUIRED_VERDICT_KEYS = {"verdict", "reachability_type", "call_chain", "call_chain_depth", "evidence"}
+MIN_CALL_CHAIN_DEPTH = 3
 
 
 def load_queue(project_root):
@@ -117,13 +118,25 @@ def stage_collect(project_root, batch_id, verdicts):
             errors.append(f"{cand_id}: invalid verdict '{v.get('verdict')}'")
             continue
 
+        # Validate call chain depth
+        call_chain = v.get("call_chain", [])
+        depth = v.get("call_chain_depth", len(call_chain))
+        if v["verdict"] in ("REACHABLE", "UNREACHABLE") and depth < MIN_CALL_CHAIN_DEPTH:
+            # Depth too shallow: upgrade to NEEDS_REVIEW and flag for retry
+            v["verdict"] = "NEEDS_REVIEW"
+            v["evidence"] = (v.get("evidence", "") +
+                f" [AUTO: call_chain_depth={depth} < {MIN_CALL_CHAIN_DEPTH}, requires deeper backtracking]")
+
         entry = cand_map[cand_id]
         entry["status"] = "VERIFIED"
         entry["verdict"] = v["verdict"]
         entry["reachability_type"] = v.get("reachability_type")
-        entry["call_chain"] = v.get("call_chain", [])
+        entry["call_chain"] = call_chain
+        entry["call_chain_depth"] = depth
         entry["evidence"] = v.get("evidence", "")
         entry["blocking_point"] = v.get("blocking_point")
+        entry["path_count"] = v.get("path_count", 0)
+        entry["paths_analyzed"] = v.get("paths_analyzed", [])
         entry["verified_at"] = __import__("datetime").datetime.now().isoformat()
         # Preserve CWE from rule if not overridden
         if v.get("cwe"):
@@ -164,14 +177,22 @@ def stage_assert(project_root):
     reachable = [c for c in candidates if c.get("verdict") == "REACHABLE"]
     unreachable = [c for c in candidates if c.get("verdict") == "UNREACHABLE"]
 
+    # Calculate average call chain depth
+    depths = [c.get("call_chain_depth", 0) for c in candidates if c.get("call_chain_depth")]
+    avg_depth = round(sum(depths) / len(depths), 2) if depths else 0
+
     print(json.dumps({
         "status": "ASSERT_PASSED",
         "total": len(candidates),
         "reachable": len(reachable),
         "unreachable": len(unreachable),
         "needs_review": len(needs_review),
+        "avg_call_chain_depth": avg_depth,
+        "min_call_chain_depth": min(depths) if depths else 0,
+        "max_call_chain_depth": max(depths) if depths else 0,
         "reachability_rate_pct": round(len(reachable) / len(candidates) * 100, 2) if candidates else 0,
-        "noise_reduction_rate_pct": round(len(unreachable) / len(candidates) * 100, 2) if candidates else 0
+        "noise_reduction_rate_pct": round(len(unreachable) / len(candidates) * 100, 2) if candidates else 0,
+        "warning": "call chain depth below threshold" if avg_depth < MIN_CALL_CHAIN_DEPTH else None
     }))
 
 
@@ -237,7 +258,7 @@ def _build_prompt(cand, ctx, project_root):
     """
     is_property_check = cand.get("type") == "PROPERTY_CHECK"
 
-    prompt = f"""你是一个 vulnerability-verifier 子智能体。你有完整的代码阅读和分析工具（read、grep、find_callers 等）。
+    prompt = f"""你是一个 vulnerability-verifier 子智能体。你有完整的代码阅读和分析工具（read、grep 等）。
 
 ## 任务上下文
 - **候选 ID**: {cand["id"]}
@@ -250,38 +271,45 @@ def _build_prompt(cand, ctx, project_root):
         prompt += f"- **Source 正则**: {ctx['sources_regex']}\n"
     prompt += f"- **项目路径**: {project_root}\n"
 
-    if is_property_check:
-        prompt += f"""
-## 任务
-1. 读取 {ctx['file']} 中 L{ctx['line']} 周围的代码
-2. 用 grep 反向查找该方法的调用者（Callers），逐层向上回溯到控制器入口或外部输入源
-3. 分析该操作是否有权限校验或属主校验
-4. 输出结论
+    prompt += f"""
+## 强制分析步骤（语言无关）
 
-"""
-    else:
-        prompt += f"""
-## 任务
-1. 读取 {ctx['file']} 中 L{ctx['line']} 周围的代码
-2. 用 grep 反向查找调用链：Sink ← Caller_L1 ← Caller_L2 ← ... ← Source
-3. 分析参数是否外部可控，路径上是否有安全阻断（白名单/参数化/边界检查）
-4. 遇接口/抽象类，搜索所有实现类继续回溯
-5. **跨边界 sink 终结 (REQ-19)**: 调用链到达以下边界时，边界即 sink:
-   - 跨进程 IPC: ContentResolver.query(selection 含拼接 OR selectionArgs=null) → REACHABLE_ACROSS_BOUNDARY; 强制 ? 占位 + 绑定 → UNREACHABLE
-   - Binder.transact / Intent extras 携带自由文本 → REACHABLE_ACROSS_BOUNDARY
-   - 跨 DSO: 外部动态库函数 + 自由文本参数 → REACHABLE_ACROSS_BOUNDARY
-   - 跨 Provider authority: URI authority 切换到第三方 ContentProvider → 同 ContentResolver 规则
-6. **特权提升 (REQ-08)**: setuid/setegid/capng_*/prctl 等特权切换后，若指令参数仍混入低特权用户可控变量 → REACHABLE
-7. 输出结论
+### 步骤 1: 逆向调用链回溯（最小深度 3 层）
+1. 读取 {ctx['file']} L{ctx['line']} 周围代码，确认 sink 点
+2. 使用 grep 反向查找直接调用者（Caller_L1），记录调用处 file:line:function
+3. 追踪 Caller_L1 的每个参数来源，找到 Caller_L2
+4. 重复直到追溯到外部输入源（请求参数/文件/Binder IPC/蓝牙 HCI 事件等）
+5. **质量门禁**: call_chain 必须 >= 3 层（Sink ← L1 ← L2），不足则继续向上搜索
 
+### 步骤 2: 多态穿透
+遇接口/抽象类/虚函数/特征(trait)，搜索所有具体实现类继续回溯
+
+### 步骤 3: 跨边界判定
+调用链到达任何进程/IPC/跨模块边界时，边界即 sink：
+- 自由文本参数来自外部输入拼接 → REACHABLE_ACROSS_BOUNDARY
+- 强制参数化/类型安全/白名单 → UNREACHABLE
+
+### 步骤 4: 阻断检测
+- 强类型转换、掩码（`& 0xFF`）、参数化绑定（`?` 占位符）、边界检查（`offset+len <= total`）
+- 阻断必须覆盖所有攻击者可控制维度——多维度中只要有一维无阻断，仍为 REACHABLE
+
+### 步骤 5: 路径覆盖
+- 列出所有到达该 Sink 点的调用路径
+- 多条路径中只要有一条无阻断 → 该点 REACHABLE
+
+### 步骤 6: 结论
+无法明确判定 → NEEDS_REVIEW（不允许默认判定或静默丢弃）
 """
     prompt += """## 输出格式（强制 JSON，不要其他文字）
 {
   "verdict": "REACHABLE | UNREACHABLE | NEEDS_REVIEW",
   "reachability_type": "DIRECT | ACROSS_BOUNDARY | INDIRECT",
-  "call_chain": ["file:line:function", "file:line:function", ...],
+  "call_chain": ["file:line:function", "file:line:function", "file:line:function", ...],
+  "call_chain_depth": <int>,
   "blocking_point": "file:line / null",
-  "evidence": "分析说明，包含调用链和数据流路径",
+  "path_count": <int>,
+  "paths_analyzed": ["path1 description", ...],
+  "evidence": "包含调用链和每层数据流路径分析的说明",
   "cwe": ["CWE-xxx"]
 }
 """
