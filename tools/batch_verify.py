@@ -69,6 +69,10 @@ def stage_next(project_root):
         print(json.dumps({"status": "ALL_DONE", "message": "No pending candidates remaining"}))
         return
 
+    # 按优先级排序: P0(最高) → P3(最低), 无优先级的放最后
+    priority_key = lambda c: c.get("priority", 99)
+    pending.sort(key=priority_key)
+
     batch = pending[:BATCH_SIZE]
     batch_info = {
         "status": "BATCH_READY",
@@ -211,11 +215,17 @@ def stage_status(project_root):
         cwe = c.get("cwe_id", "?")
         cwes[cwe] = cwes.get(cwe, 0) + 1
 
+    priorities = {}
+    for c in candidates:
+        p = c.get("priority", 99)
+        priorities[p] = priorities.get(p, 0) + 1
+
     print(json.dumps({
         "status": "QUEUE_STATUS",
         "total": len(candidates),
         "by_status": statuses,
         "by_verdict": verdicts,
+        "by_priority": dict(sorted(priorities.items())),
         "by_cwe": dict(sorted(cwes.items(), key=lambda x: -x[1])[:15])
     }))
 

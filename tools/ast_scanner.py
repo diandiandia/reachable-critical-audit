@@ -233,18 +233,25 @@ class ASTCoarseScanner:
             if lang:
                 lang_hits[lang] = lang_hits.get(lang, 0) + 1
 
-        # 附加 R1.5 触发条件信息 (主语言零命中 + 源文件数 > 500 时强制 R1.5)
+        # 过滤 test/build/third-party 候选 + 按 CWE 标记优先级 (语言无关)
+        filtered, discarded = self._filter_and_prioritize(candidates)
+
+        # 按优先级统计
+        priority_dist = {}
+        for c in filtered:
+            p = c.get("priority", 2)
+            priority_dist[p] = priority_dist.get(p, 0) + 1
+
+        # L2 fallback: 非预设语言扩展
         l2_exts = [
             {"ext": ext, "count": cnt}
             for ext, cnt in sorted(unknown_extensions.items(), key=lambda x: -x[1])
         ]
         l2_required = (
-            len(candidates) == 0 and
-            len(l2_exts) > 0 and
-            total_source_files > 0
+            len(filtered) == 0 and len(l2_exts) > 0 and total_source_files > 0
         )
 
-        # 判断主体语言: 按源文件数最多者
+        # 主体语言统计
         lang_file_counts = {}
         for root, _, files in os.walk(workspace_path):
             if any(ignored in root for ignored in ["node_modules", ".git", "scratch", "target", "build"]):
@@ -256,20 +263,14 @@ class ASTCoarseScanner:
                 lang = self.EXTENSION_MAP.get(ext)
                 if lang:
                     lang_file_counts[lang] = lang_file_counts.get(lang, 0) + 1
-        main_lang = max(lang_file_counts, key=lang_file_counts.get) if lang_file_counts else None
-
-        r1_5_required = (
-            main_lang is not None
-            and lang_hits.get(main_lang, 0) == 0
-            and total_source_files > 500
-        )
 
         scan_meta = {
             "total_source_files": total_source_files,
-            "main_language": main_lang,
-            "lang_file_counts": lang_file_counts,
-            "lang_hits": lang_hits,
-            "r1_5_required": r1_5_required,
+            "raw_candidates": len(candidates),
+            "discarded_test_build": discarded,
+            "candidates_after_filter": len(filtered),
+            "priority_distribution": priority_dist,
+            "r1_5_required": True,  # R1.5 始终执行
             "l2_required": l2_required,
             "l2_exts": l2_exts,
             "l2_note": (
@@ -278,7 +279,7 @@ class ASTCoarseScanner:
                 if l2_required else None
             )
         }
-        return candidates, scan_meta
+        return filtered, scan_meta
 
     def _scan_property_checks(self, content, prop_patterns, file_path, lang):
         candidates = []
@@ -454,6 +455,48 @@ class ASTCoarseScanner:
                     })
                     break
         return candidates
+
+    # ---- 语言无关优先级与过滤 ----
+
+    _CWE_PRIORITY = {
+        "CWE-78": 0, "CWE-89": 0, "CWE-94": 0, "CWE-119": 0, "CWE-416": 0,
+        "CWE-502": 0, "CWE-787": 0, "CWE-918": 0, "CWE-789": 0,
+        "CWE-20": 1, "CWE-22": 1, "CWE-125": 1, "CWE-190": 1, "CWE-269": 1,
+        "CWE-285": 1, "CWE-287": 1, "CWE-611": 1, "CWE-862": 1,
+        "CWE-79": 2, "CWE-134": 2, "CWE-200": 2, "CWE-250": 2, "CWE-352": 2,
+        "CWE-362": 2, "CWE-400": 2, "CWE-434": 2, "CWE-476": 2, "CWE-601": 2, "CWE-908": 2,
+    }
+    _IGNORE_PATH_PARTS = {
+        "test", "tests", "mock", "mocks", "unittest", "mockcify",
+        "tools", "tool", "build", "scripts",
+        "node_modules", "vendor", "third_party", "libs",
+    }
+
+    @staticmethod
+    def _is_ignored_path(rel_path):
+        parts = rel_path.replace("\\", "/").split("/")
+        for part in parts:
+            if part in ast_scanner._IGNORE_PATH_PARTS:
+                return True
+            if part.endswith("Test") or part.startswith("Test"):
+                return True
+        return False
+
+    @staticmethod
+    def _priority_for_cwe(cwe_id):
+        return ast_scanner._CWE_PRIORITY.get(cwe_id, 2)
+
+    def _filter_and_prioritize(self, candidates):
+        filtered = []
+        discarded = 0
+        for cand in candidates:
+            fp = cand.get("file_path", "")
+            if self._is_ignored_path(fp):
+                discarded += 1
+                continue
+            cand["priority"] = self._priority_for_cwe(cand.get("cwe_id", ""))
+            filtered.append(cand)
+        return filtered, discarded
 
     def _find_rule_by_ast(self, lang_rules, ast_pattern):
         for rule in lang_rules:

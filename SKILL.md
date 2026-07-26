@@ -63,12 +63,14 @@ Skill 启动后**第一步必须**执行以下三件事，任何一步失败即 
 
 1. **基准规则对齐**：Agent 首先读取并解析 `resources/security_profiles.json`。`rules.<lang>` 段已由 CodeQL qll 清洗产出（`codeql_revision` 字段记录版本），覆盖 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）。
 2. **混合双层扫描**：先用 `tools/ast_scanner.py` 的正则粗筛全项目，再用 tree-sitter AST S-expression 精确校验。正则命中但 AST 校验不通过的候选点降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
-3. **过滤低风险噪音**：不在 Top-N 规则内的 CWE 类别物理忽略。代码风格、命名规范、非安全场景弱随机数、`.min.`/`vendor/`/`node_modules/`/`third_party/`/`libs/` 路径全部物理过滤。超 1000 字符行强制截断。
-4. **入队**：每个命中候选写入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L0`：
+3. **过滤低风险噪音**：不在 Top-N 规则内的 CWE 类别物理忽略。代码风格、命名规范、非安全场景弱随机数物理过滤。超 1000 字符行强制截断。
+4. **测试/构建代码丢弃**：路径含 `test/`/`tests/`/`mock/`/`tools/`/`build/`/`scripts/`/`vendor/`/`node_modules/`/`third_party/`/`libs/` 的候选直接丢弃，不入队列。该条件语言无关—对所有 15 种预设语言统一生效。
+5. **优先级标记**：每个候选入队时根据 `cwe_id` 标记 `priority` 字段（语言无关）。P0（高严重：RCE/注入/内存破坏/反序列化）→ P1（中严重：跨边界/授权/路径穿越）→ P2（低严重：需上下文判定）。`batch_verify.py` 按优先级出队，确保高价值候选优先验证。
+6. **入队**：每个命中候选写入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L0`：
    ```json
    {"id": "CAND-001", "source_file": "...", "source_line": 123,
     "sink_type": "CWE-789", "source_pattern": "STREAM_TO_UINT16",
-    "origin": "L0", "status": "PENDING"}
+    "origin": "L0", "priority": 0, "status": "PENDING"}
    ```
 
 ---
@@ -89,6 +91,8 @@ R1 完成后**必须无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 
 ## 🔄 R3：双向数据流追踪与可达约束验证
 
 `verify_queue.json` 中所有 `status=PENDING` 候选分批并发验证。每次 3~5 个子智能体（按平台兼容层选定的模式），单批完成立即落盘。
+
+**按优先级出队**：`batch_verify.py --stage next` 按候选 `priority` 字段升序出队（P0 先验证），确保高严重性 CWE（RCE/注入/内存破坏）优先处理。优先级语言无关，由 `ast_scanner.py` 在入队时根据 `cwe_id` 自动标记。
 
 **Mode A' (opencode `task` 工具) 分批验证——用 `batch_verify.py` 编排**：
 ```
@@ -362,21 +366,22 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
 R0  工具自检 + 平台探测 + mkdir .audit_results/ + 初始化 verify_queue.json
      │  失败即 fail-fast
      ↓
-R1  静态规则扫描 (L0):
-     │  ast_scanner.py 正则粗筛 + tree-sitter AST 校验
-     │  命中候选入队 origin=L0, status=PENDING
+R1  + R1.5  静态规则扫描 + 框架感知扩展 (并行):
+     │  ast_scanner.py 正则粗筛 + tree-sitter AST 校验 (L0)
+     │  wrapper_detection 扫描项目自有 wrapper (L1)
+     │  测试/构建/第三方路径候选丢弃 (语言无关)
+     │  按 CWE 标记 priority 字段 (P0/P1/P2)
+     │  候选入队 origin=L0/L1, priority=0~2, status=PENDING
+     │  非预设语言 → L2 fallback (主 Agent 复核)
      ↓
-R1.5 框架感知扩展 (L1) [强制:R1 命中 0 且文件数>500 时必执行]:
-     │  按 wrapper_detection 扫描项目自有 wrapper
-     │  extended_sinks.json 入队 origin=L1
-     │  非预设语言生成 extended_profile.json origin=L2 (主 Agent 复核)
-     ↓
-R3  双向回溯验证:
+R3  双向回溯验证 (按优先级出队):
      │  分批并发 3~5 子智能体 (平台兼容层选定模式)
+     │  batch_verify.py 按 priority ASC 出队 (P0 先验证)
      │  每批立即落盘 verify_queue.json
      │  状态机: PENDING → VERIFIED → {REACHABLE|UNREACHABLE|NEEDS_REVIEW}
      │         + reachability_type ∈ {DIRECT, ACROSS_BOUNDARY}
      │  跨边界按 REQ-19 终结判定
+     │  强制 call_chain_depth ≥ 3
      │  Assert: 无 PENDING 才能进 R4
      ↓
 R4  业务逻辑深钻:
