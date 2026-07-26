@@ -472,19 +472,19 @@ class ASTCoarseScanner:
         "node_modules", "vendor", "third_party", "libs",
     }
 
-    @staticmethod
-    def _is_ignored_path(rel_path):
+    @classmethod
+    def _is_ignored_path(cls, rel_path):
         parts = rel_path.replace("\\", "/").split("/")
         for part in parts:
-            if part in ast_scanner._IGNORE_PATH_PARTS:
+            if part in cls._IGNORE_PATH_PARTS:
                 return True
             if part.endswith("Test") or part.startswith("Test"):
                 return True
         return False
 
-    @staticmethod
-    def _priority_for_cwe(cwe_id):
-        return ast_scanner._CWE_PRIORITY.get(cwe_id, 2)
+    @classmethod
+    def _priority_for_cwe(cls, cwe_id):
+        return cls._CWE_PRIORITY.get(cwe_id, 2)
 
     def _filter_and_prioritize(self, candidates):
         filtered = []
