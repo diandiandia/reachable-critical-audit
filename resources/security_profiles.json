@@ -3267,11 +3267,2267 @@
         "codeql_model": "manual-heuristic (CodeQL 未提取, 保留人工 AST/regex)"
       }
     ],
-    "php": [],
-    "ruby": [],
-    "swift": [],
-    "kotlin": [],
-    "scala": [],
+    "php": [
+      {
+        "cwe_id": "CWE-502",
+        "category": "Deserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 1,
+        "sinks": {
+          "regex": [
+            "extract\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 7,
+        "sinks": {
+          "regex": [
+            "exec\\s*\\(",
+            "expect_popen\\s*\\(",
+            "passthru\\s*\\(",
+            "popen\\s*\\(",
+            "proc_open\\s*\\(",
+            "shell_exec\\s*\\(",
+            "system\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "Xss",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 2,
+        "sinks": {
+          "regex": [
+            "print\\s*\\(",
+            "trigger_error\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 27,
+        "sinks": {
+          "regex": [
+            "add\\s*\\(",
+            "addGroupBy\\s*\\(",
+            "addOrderBy\\s*\\(",
+            "addSelect\\s*\\(",
+            "andHaving\\s*\\(",
+            "andWhere\\s*\\(",
+            "delete\\s*\\(",
+            "from\\s*\\(",
+            "groupBy\\s*\\(",
+            "having\\s*\\(",
+            "ignore\\s*\\(",
+            "innerJoin\\s*\\(",
+            "insert\\s*\\(",
+            "join\\s*\\(",
+            "leftJoin\\s*\\(",
+            "orHaving\\s*\\(",
+            "orWhere\\s*\\(",
+            "orderBy\\s*\\(",
+            "raw\\s*\\(",
+            "rightJoin\\s*\\(",
+            "select\\s*\\(",
+            "set\\s*\\(",
+            "setValue\\s*\\(",
+            "sprintf\\s*\\(",
+            "unique\\s*\\(",
+            "update\\s*\\(",
+            "where\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Ssrf",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 8,
+        "sinks": {
+          "regex": [
+            "sprintf\\s*\\(",
+            "vip_safe_wp_remote_get\\s*\\(",
+            "wp_oembed_get\\s*\\(",
+            "wp_remote_get\\s*\\(",
+            "wp_safe_remote_get\\s*\\(",
+            "wp_safe_remote_head\\s*\\(",
+            "wp_safe_remote_post\\s*\\(",
+            "wp_safe_remote_request\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 7,
+        "sinks": {
+          "regex": [
+            "exec\\s*\\(",
+            "passthru\\s*\\(",
+            "pcntl_exec\\s*\\(",
+            "popen\\s*\\(",
+            "proc_open\\s*\\(",
+            "shell_exec\\s*\\(",
+            "system\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-95",
+        "category": "EvalInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 1,
+        "sinks": {
+          "regex": [
+            "assert\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      }
+    ],
+    "ruby": [
+      {
+        "cwe_id": "CWE-502",
+        "category": "Deserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 3,
+        "sinks": {
+          "regex": [
+            "load\\s*\\(",
+            "object_load\\s*\\(",
+            "restore\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-601",
+        "category": "OpenRedirect",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 1,
+        "sinks": {
+          "regex": [
+            "redirect_to\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "Xss",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 2,
+        "sinks": {
+          "regex": [
+            "link_to\\s*\\(",
+            "sprintf\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 15,
+        "sinks": {
+          "regex": [
+            "async_exec\\s*\\(",
+            "async_exec_params\\s*\\(",
+            "async_exec_prepared\\s*\\(",
+            "exec\\s*\\(",
+            "exec_params\\s*\\(",
+            "exec_prepared\\s*\\(",
+            "execute\\s*\\(",
+            "find\\s*\\(",
+            "find_by_sql\\s*\\(",
+            "prepare\\s*\\(",
+            "query\\s*\\(",
+            "run\\s*\\(",
+            "select_all\\s*\\(",
+            "sprintf\\s*\\(",
+            "where\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Ssrf",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 1,
+        "sinks": {
+          "regex": [
+            "new\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 4,
+        "sinks": {
+          "regex": [
+            "class_eval\\s*\\(",
+            "eval\\s*\\(",
+            "instance_eval\\s*\\(",
+            "module_eval\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      }
+    ],
+    "swift": [
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "semgrep-registry",
+        "provenance": "semgrep",
+        "sink_count": 2,
+        "sinks": {
+          "regex": [
+            "sqlite3_exec\\s*\\(",
+            "sqlite3_prepare_v2\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        }
+      }
+    ],
+    "kotlin": [
+      {
+        "cwe_id": "CWE-113",
+        "category": "ResponseSplitting",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 4,
+        "sinks": {
+          "regex": [
+            "addCookie\\s*\\(",
+            "addHeader\\s*\\(",
+            "header\\s*\\(",
+            "setHeader\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "PathTraversal",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 184,
+        "sinks": {
+          "regex": [
+            "ANTLRFileStream\\s*\\(",
+            "AtomicFileWriter\\s*\\(",
+            "FileBackedDataSource\\s*\\(",
+            "FileDataSource\\s*\\(",
+            "FileHandler\\s*\\(",
+            "FileImageOutputStream\\s*\\(",
+            "FileOutputStream\\s*\\(",
+            "FileOutputStreamFactory\\s*\\(",
+            "FileSystemResource\\s*\\(",
+            "FileUrlResource\\s*\\(",
+            "FileWriter\\s*\\(",
+            "FileWriterUtil\\s*\\(",
+            "FileWriterWithEncoding\\s*\\(",
+            "GenericRecordJsonWriter\\s*\\(",
+            "GenericRecordXmlWriter\\s*\\(",
+            "LockableFileWriter\\s*\\(",
+            "MoveFileExA\\s*\\(",
+            "OldExcelExtractor\\s*\\(",
+            "POIFSFileSystem\\s*\\(",
+            "PathResource\\s*\\(",
+            "PrintStream\\s*\\(",
+            "PrintWriter\\s*\\(",
+            "RandomAccessFile\\s*\\(",
+            "ReopenableFileOutputStream\\s*\\(",
+            "RewindableFileOutputStream\\s*\\(",
+            "SeekableFileInput\\s*\\(",
+            "StreamResult\\s*\\(",
+            "StreamTaskListener\\s*\\(",
+            "SyncableFileOutputStream\\s*\\(",
+            "URIResolver\\s*\\(",
+            "UrlResource\\s*\\(",
+            "VBAMacroReader\\s*\\(",
+            "XmlFile\\s*\\(",
+            "XmlStreamWriter\\s*\\(",
+            "ZipFile\\s*\\(",
+            "ZipURLInstaller\\s*\\(",
+            "accept\\s*\\(",
+            "addPicture\\s*\\(",
+            "appendBytes\\s*\\(",
+            "appendText\\s*\\(",
+            "appendTo\\s*\\(",
+            "asByteSink\\s*\\(",
+            "asCharSink\\s*\\(",
+            "bufferedWriter\\s*\\(",
+            "buildDir\\s*\\(",
+            "checkout\\s*\\(",
+            "copy\\s*\\(",
+            "copyDirectory\\s*\\(",
+            "copyDirectoryToDirectory\\s*\\(",
+            "copyFile\\s*\\(",
+            "copyFileToDirectory\\s*\\(",
+            "copyFiles\\s*\\(",
+            "copyFrom\\s*\\(",
+            "copyInputStreamToFile\\s*\\(",
+            "copyRecursiveTo\\s*\\(",
+            "copyRecursively\\s*\\(",
+            "copyTo\\s*\\(",
+            "copyToByteArray\\s*\\(",
+            "copyToDirectory\\s*\\(",
+            "copyToFile\\s*\\(",
+            "copyToWithPermission\\s*\\(",
+            "copyURLToFile\\s*\\(",
+            "create\\s*\\(",
+            "createDirectories\\s*\\(",
+            "createDirectory\\s*\\(",
+            "createExtractor\\s*\\(",
+            "createFile\\s*\\(",
+            "createFileCodeWriter\\s*\\(",
+            "createLink\\s*\\(",
+            "createNewFile\\s*\\(",
+            "createOutputStream\\s*\\(",
+            "createPutObjectRequest\\s*\\(",
+            "createRelative\\s*\\(",
+            "createSymbolicLink\\s*\\(",
+            "createTempDirectory\\s*\\(",
+            "createTempFile\\s*\\(",
+            "delete\\s*\\(",
+            "deleteDirectory\\s*\\(",
+            "deleteFile\\s*\\(",
+            "deleteIfExists\\s*\\(",
+            "deleteOnExit\\s*\\(",
+            "deleteQuietly\\s*\\(",
+            "deleteRecursively\\s*\\(",
+            "destination\\s*\\(",
+            "dump\\s*\\(",
+            "exists\\s*\\(",
+            "extract\\s*\\(",
+            "extractAll\\s*\\(",
+            "filter\\s*\\(",
+            "filterList\\s*\\(",
+            "filterSet\\s*\\(",
+            "forceDelete\\s*\\(",
+            "forceDeleteOnExit\\s*\\(",
+            "forceMkdir\\s*\\(",
+            "forceMkdirParent\\s*\\(",
+            "fromFile\\s*\\(",
+            "getCanonicalPath\\s*\\(",
+            "getChild\\s*\\(",
+            "getFile\\s*\\(",
+            "getFileSystem\\s*\\(",
+            "getFileToWrite\\s*\\(",
+            "getRandomAccess\\s*\\(",
+            "getResource\\s*\\(",
+            "getResourceAsStream\\s*\\(",
+            "getWriter\\s*\\(",
+            "install\\s*\\(",
+            "lines\\s*\\(",
+            "loadFile\\s*\\(",
+            "mkdir\\s*\\(",
+            "mkdirs\\s*\\(",
+            "move\\s*\\(",
+            "moveDirectory\\s*\\(",
+            "moveDirectoryToDirectory\\s*\\(",
+            "moveFile\\s*\\(",
+            "moveFileToDirectory\\s*\\(",
+            "moveToDirectory\\s*\\(",
+            "newBufferedReader\\s*\\(",
+            "newBufferedWriter\\s*\\(",
+            "newByteChannel\\s*\\(",
+            "newFileSystem\\s*\\(",
+            "newInputStream\\s*\\(",
+            "newOutputStream\\s*\\(",
+            "newWriter\\s*\\(",
+            "open\\s*\\(",
+            "openInputStream\\s*\\(",
+            "openOutputStream\\s*\\(",
+            "openReader\\s*\\(",
+            "outputStream\\s*\\(",
+            "parse\\s*\\(",
+            "parseSingle\\s*\\(",
+            "printWriter\\s*\\(",
+            "read\\s*\\(",
+            "readAllBytes\\s*\\(",
+            "readAllLines\\s*\\(",
+            "readData\\s*\\(",
+            "readFileToByteArray\\s*\\(",
+            "readFromOffset\\s*\\(",
+            "readLines\\s*\\(",
+            "readString\\s*\\(",
+            "readToString\\s*\\(",
+            "readValue\\s*\\(",
+            "redirectError\\s*\\(",
+            "redirectOutput\\s*\\(",
+            "removeDir\\s*\\(",
+            "rename\\s*\\(",
+            "renameOrMoveFilesInParallel\\s*\\(",
+            "renameTo\\s*\\(",
+            "resolve\\s*\\(",
+            "result\\s*\\(",
+            "rewriteHudsonWar\\s*\\(",
+            "serializeToFile\\s*\\(",
+            "serveFile\\s*\\(",
+            "serveLocalizedFile\\s*\\(",
+            "setDest\\s*\\(",
+            "setExecutable\\s*\\(",
+            "setFile\\s*\\(",
+            "setLastModified\\s*\\(",
+            "setReadOnly\\s*\\(",
+            "setReadable\\s*\\(",
+            "setResource\\s*\\(",
+            "setTodir\\s*\\(",
+            "setTofile\\s*\\(",
+            "setWritable\\s*\\(",
+            "source\\s*\\(",
+            "startsWith\\s*\\(",
+            "staticResource\\s*\\(",
+            "tar\\s*\\(",
+            "touch\\s*\\(",
+            "trustManager\\s*\\(",
+            "unzipFrom\\s*\\(",
+            "updateIntegrityHMAC\\s*\\(",
+            "valueOf\\s*\\(",
+            "viewFile\\s*\\(",
+            "viewFileOld\\s*\\(",
+            "write\\s*\\(",
+            "writeByteArrayToFile\\s*\\(",
+            "writeBytes\\s*\\(",
+            "writeLines\\s*\\(",
+            "writeString\\s*\\(",
+            "writeStringToFile\\s*\\(",
+            "writeText\\s*\\(",
+            "writeTo\\s*\\(",
+            "writeValue\\s*\\(",
+            "writer\\s*\\("
+          ],
+          "ast_patterns": [
+            "(object_creation_expression type: (type_identifier) @type (#match? @type \"^(File|FileInputStream|FileOutputStream)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-501",
+        "category": "TrustBoundaryViolation",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 6,
+        "sinks": {
+          "regex": [
+            "addingToSession\\s*\\(",
+            "put\\s*\\(",
+            "putValue\\s*\\(",
+            "setAttribute\\s*\\(",
+            "setSession\\s*\\(",
+            "withSession\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "Deserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 12,
+        "sinks": {
+          "regex": [
+            "borrow\\s*\\(",
+            "deserialize\\s*\\(",
+            "fromJSON\\s*\\(",
+            "jsonToJava\\s*\\(",
+            "load\\s*\\(",
+            "loadStream\\s*\\(",
+            "loadStreamOfType\\s*\\(",
+            "loadType\\s*\\(",
+            "read\\s*\\(",
+            "readObject\\s*\\(",
+            "readUnshared\\s*\\(",
+            "unmarshal\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(readObject|parseObject|readValue)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestBody",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-601",
+        "category": "OpenRedirect",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 20,
+        "sinks": {
+          "regex": [
+            "ModelAndView\\s*\\(",
+            "add\\s*\\(",
+            "attach\\s*\\(",
+            "browse\\s*\\(",
+            "forward\\s*\\(",
+            "getClassName\\s*\\(",
+            "getPackageName\\s*\\(",
+            "getRequestDispatcher\\s*\\(",
+            "open\\s*\\(",
+            "redirectTo\\s*\\(",
+            "replace\\s*\\(",
+            "seeOther\\s*\\(",
+            "sendRedirect\\s*\\(",
+            "sendRedirect2\\s*\\(",
+            "setClass\\s*\\(",
+            "setClassName\\s*\\(",
+            "setComponent\\s*\\(",
+            "setPackage\\s*\\(",
+            "setViewName\\s*\\(",
+            "temporaryRedirect\\s*\\("
+          ],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(sendRedirect|redirect|Response.seeOther)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "dest",
+            "redirect",
+            "target",
+            "url"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-611",
+        "category": "XxeXmlParser",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 28,
+        "sinks": {
+          "regex": [
+            "ACCESS_EXTERNAL_DTD\\s*\\(",
+            "ACCESS_EXTERNAL_SCHEMA\\s*\\(",
+            "ACCESS_EXTERNAL_STYLESHEET\\s*\\(",
+            "FEATURE_SECURE_PROCESSING\\s*\\(",
+            "IS_SUPPORTING_EXTERNAL_ENTITIES\\s*\\(",
+            "SUPPORT_DTD\\s*\\(",
+            "build\\s*\\(",
+            "createXMLEventReader\\s*\\(",
+            "createXMLStreamReader\\s*\\(",
+            "evaluate\\s*\\(",
+            "format\\s*\\(",
+            "getXMLReader\\s*\\(",
+            "newDocumentBuilder\\s*\\(",
+            "newSAXParser\\s*\\(",
+            "newSchema\\s*\\(",
+            "newTransformer\\s*\\(",
+            "newTransformerHandler\\s*\\(",
+            "newXMLFilter\\s*\\(",
+            "parse\\s*\\(",
+            "provide\\s*\\(",
+            "read\\s*\\(",
+            "setAttribute\\s*\\(",
+            "setFeature\\s*\\(",
+            "setProperty\\s*\\(",
+            "setXMLReader\\s*\\(",
+            "transform\\s*\\(",
+            "unmarshal\\s*\\(",
+            "validate\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^newInstance$\") operand: (identifier) @op (#match? @op \"^(DocumentBuilderFactory|SAXParserFactory|XMLInputFactory)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestBody",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-643",
+        "category": "XPathInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 18,
+        "sinks": {
+          "regex": [
+            "compile\\s*\\(",
+            "createPattern\\s*\\(",
+            "createXPath\\s*\\(",
+            "createXPathFilter\\s*\\(",
+            "evaluate\\s*\\(",
+            "evaluateExpression\\s*\\(",
+            "getValue\\s*\\(",
+            "getValueList\\s*\\(",
+            "getValueNode\\s*\\(",
+            "getValueString\\s*\\(",
+            "isExist\\s*\\(",
+            "matches\\s*\\(",
+            "numberValueOf\\s*\\(",
+            "selectNodes\\s*\\(",
+            "selectObject\\s*\\(",
+            "selectSingleNode\\s*\\(",
+            "sort\\s*\\(",
+            "valueOf\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-74",
+        "category": "JndiInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 11,
+        "sinks": {
+          "regex": [
+            "connect\\s*\\(",
+            "doLookup\\s*\\(",
+            "findByDn\\s*\\(",
+            "list\\s*\\(",
+            "listBindings\\s*\\(",
+            "lookup\\s*\\(",
+            "lookupContext\\s*\\(",
+            "lookupLink\\s*\\(",
+            "rename\\s*\\(",
+            "search\\s*\\(",
+            "searchForObject\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 15,
+        "sinks": {
+          "regex": [
+            "ProcessBuilder\\s*\\(",
+            "addArguments\\s*\\(",
+            "addVariableToEnvironment\\s*\\(",
+            "cmdAsSingleString\\s*\\(",
+            "cmds\\s*\\(",
+            "command\\s*\\(",
+            "decorateByEnv\\s*\\(",
+            "directory\\s*\\(",
+            "envs\\s*\\(",
+            "exec\\s*\\(",
+            "execute\\s*\\(",
+            "launch\\s*\\(",
+            "launchChannel\\s*\\(",
+            "parse\\s*\\(",
+            "runCommand\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#eq? @name \"exec\") arguments: (argument_list) @args)",
+            "(object_creation_expression type: (type_identifier) @type (#eq? @type \"ProcessBuilder\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@PathVariable",
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "Xss",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 11,
+        "sinks": {
+          "regex": [
+            "errorWithMarkup\\s*\\(",
+            "html\\s*\\(",
+            "literalHtml\\s*\\(",
+            "loadData\\s*\\(",
+            "loadDataWithBaseURL\\s*\\(",
+            "okWithMarkup\\s*\\(",
+            "respond\\s*\\(",
+            "setEntity\\s*\\(",
+            "updateEntity\\s*\\(",
+            "warningWithMarkup\\s*\\(",
+            "write\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(write|print|println)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 58,
+        "sinks": {
+          "regex": [
+            "Annotated\\s*\\(",
+            "BatchSqlUpdate\\s*\\(",
+            "DefaultConstraintsRequest\\s*\\(",
+            "MappingSqlQuery\\s*\\(",
+            "MappingSqlQueryWithParameters\\s*\\(",
+            "RawSqlStatement\\s*\\(",
+            "SqlCall\\s*\\(",
+            "SqlFunction\\s*\\(",
+            "SqlQuery\\s*\\(",
+            "SqlUpdate\\s*\\(",
+            "UpdatableSqlQuery\\s*\\(",
+            "addBatch\\s*\\(",
+            "addOneColumn\\s*\\(",
+            "analyticsQuery\\s*\\(",
+            "batchUpdate\\s*\\(",
+            "blobFileDescriptorForQuery\\s*\\(",
+            "compileStatement\\s*\\(",
+            "console\\s*\\(",
+            "createDbFromSqlStatements\\s*\\(",
+            "createMutationQuery\\s*\\(",
+            "createNativeMutationQuery\\s*\\(",
+            "createNativeQuery\\s*\\(",
+            "createQuery\\s*\\(",
+            "createSQLQuery\\s*\\(",
+            "createSelectionQuery\\s*\\(",
+            "delete\\s*\\(",
+            "execPerConnectionSQL\\s*\\(",
+            "execSQL\\s*\\(",
+            "execute\\s*\\(",
+            "executeLargeUpdate\\s*\\(",
+            "executeQuery\\s*\\(",
+            "executeUpdate\\s*\\(",
+            "getColumns\\s*\\(",
+            "getPrimaryKeys\\s*\\(",
+            "insert\\s*\\(",
+            "longForQuery\\s*\\(",
+            "prepareCall\\s*\\(",
+            "prepareStatement\\s*\\(",
+            "query\\s*\\(",
+            "queryForList\\s*\\(",
+            "queryForMap\\s*\\(",
+            "queryForObject\\s*\\(",
+            "queryForRowSet\\s*\\(",
+            "queryForStream\\s*\\(",
+            "queryNumEntries\\s*\\(",
+            "queryStreaming\\s*\\(",
+            "queryWithFactory\\s*\\(",
+            "rawQuery\\s*\\(",
+            "rawQueryWithFactory\\s*\\(",
+            "run\\s*\\(",
+            "selectAll\\s*\\(",
+            "selectOne\\s*\\(",
+            "setSql\\s*\\(",
+            "sinkStuff\\s*\\(",
+            "stringForQuery\\s*\\(",
+            "update\\s*\\(",
+            "updatePartitionColumnStatistics\\s*\\(",
+            "updateWithOnConflict\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name arguments: (argument_list (binary_expression operator: \"+\") @expr) (#match? @name \"^(query|execute|createQuery|createNativeQuery)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-90",
+        "category": "LdapInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 8,
+        "sinks": {
+          "regex": [
+            "asyncSearch\\s*\\(",
+            "authenticate\\s*\\(",
+            "find\\s*\\(",
+            "findOne\\s*\\(",
+            "search\\s*\\(",
+            "searchForContext\\s*\\(",
+            "searchForEntry\\s*\\(",
+            "searchForObject\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Ssrf",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 106,
+        "sinks": {
+          "regex": [
+            "BasicClassicHttpRequest\\s*\\(",
+            "BasicHttpEntityEnclosingRequest\\s*\\(",
+            "BasicHttpRequest\\s*\\(",
+            "BasicRequestProducer\\s*\\(",
+            "ConfigurableHttpRequest\\s*\\(",
+            "DatagramPacket\\s*\\(",
+            "DefaultFullHttpRequest\\s*\\(",
+            "DefaultHttpRequest\\s*\\(",
+            "Delete\\s*\\(",
+            "DriverManagerDataSource\\s*\\(",
+            "FullDuplexHttpStream\\s*\\(",
+            "GET\\s*\\(",
+            "Get\\s*\\(",
+            "Head\\s*\\(",
+            "HikariConfig\\s*\\(",
+            "HttpDelete\\s*\\(",
+            "HttpGet\\s*\\(",
+            "HttpHead\\s*\\(",
+            "HttpOptions\\s*\\(",
+            "HttpPatch\\s*\\(",
+            "HttpPost\\s*\\(",
+            "HttpPut\\s*\\(",
+            "HttpTrace\\s*\\(",
+            "HttpUriRequestBase\\s*\\(",
+            "JellyContext\\s*\\(",
+            "Options\\s*\\(",
+            "Patch\\s*\\(",
+            "Post\\s*\\(",
+            "Put\\s*\\(",
+            "Request\\s*\\(",
+            "RequestEntity\\s*\\(",
+            "SimpleHttpRequest\\s*\\(",
+            "Socket\\s*\\(",
+            "Trace\\s*\\(",
+            "URIResolver\\s*\\(",
+            "URLClassLoader\\s*\\(",
+            "URLDataSource\\s*\\(",
+            "XmlStreamReader\\s*\\(",
+            "ZipURLInstaller\\s*\\(",
+            "baseUrl\\s*\\(",
+            "connect\\s*\\(",
+            "copy\\s*\\(",
+            "copyFile\\s*\\(",
+            "copyFileToDirectory\\s*\\(",
+            "copyURLToFile\\s*\\(",
+            "create\\s*\\(",
+            "delete\\s*\\(",
+            "doExecute\\s*\\(",
+            "download\\s*\\(",
+            "exchange\\s*\\(",
+            "execute\\s*\\(",
+            "get\\s*\\(",
+            "getConnection\\s*\\(",
+            "getContent\\s*\\(",
+            "getForEntity\\s*\\(",
+            "getForObject\\s*\\(",
+            "getResource\\s*\\(",
+            "getSession\\s*\\(",
+            "getURLClassLoader\\s*\\(",
+            "head\\s*\\(",
+            "headForHeaders\\s*\\(",
+            "installIfNecessaryFrom\\s*\\(",
+            "load\\s*\\(",
+            "loadCatalog\\s*\\(",
+            "loadJSON\\s*\\(",
+            "loadJSONHTML\\s*\\(",
+            "method\\s*\\(",
+            "newBuilder\\s*\\(",
+            "newCall\\s*\\(",
+            "newFileSystem\\s*\\(",
+            "newHttpRequest\\s*\\(",
+            "newInstance\\s*\\(",
+            "newRequest\\s*\\(",
+            "newWebSocket\\s*\\(",
+            "open\\s*\\(",
+            "openConnection\\s*\\(",
+            "openStream\\s*\\(",
+            "options\\s*\\(",
+            "optionsForAllow\\s*\\(",
+            "parse\\s*\\(",
+            "patch\\s*\\(",
+            "patchForObject\\s*\\(",
+            "post\\s*\\(",
+            "postForEntity\\s*\\(",
+            "postForLocation\\s*\\(",
+            "postForObject\\s*\\(",
+            "put\\s*\\(",
+            "readBytes\\s*\\(",
+            "readText\\s*\\(",
+            "resolve\\s*\\(",
+            "reverseProxyTo\\s*\\(",
+            "send\\s*\\(",
+            "setAddress\\s*\\(",
+            "setHttpHost\\s*\\(",
+            "setJdbcUrl\\s*\\(",
+            "setSocketAddress\\s*\\(",
+            "setURI\\s*\\(",
+            "setUri\\s*\\(",
+            "setUrl\\s*\\(",
+            "staticResource\\s*\\(",
+            "target\\s*\\(",
+            "toByteArray\\s*\\(",
+            "toString\\s*\\(",
+            "trace\\s*\\(",
+            "uri\\s*\\(",
+            "url\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(execute|openConnection|getForObject|postForObject|exchange)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-926",
+        "category": "IntentRedirection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 21,
+        "sinks": {
+          "regex": [
+            "bindService\\s*\\(",
+            "bindServiceAsUser\\s*\\(",
+            "sendBroadcast\\s*\\(",
+            "sendBroadcastAsUser\\s*\\(",
+            "sendBroadcastWithMultiplePermissions\\s*\\(",
+            "sendStickyBroadcast\\s*\\(",
+            "sendStickyBroadcastAsUser\\s*\\(",
+            "sendStickyOrderedBroadcast\\s*\\(",
+            "sendStickyOrderedBroadcastAsUser\\s*\\(",
+            "startActivities\\s*\\(",
+            "startActivity\\s*\\(",
+            "startActivityAsCaller\\s*\\(",
+            "startActivityAsUser\\s*\\(",
+            "startActivityForResult\\s*\\(",
+            "startActivityForResultAsUser\\s*\\(",
+            "startActivityFromChild\\s*\\(",
+            "startActivityFromFragment\\s*\\(",
+            "startActivityIfNeeded\\s*\\(",
+            "startForegroundService\\s*\\(",
+            "startService\\s*\\(",
+            "startServiceAsUser\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-927",
+        "category": "PendingIntent",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 15,
+        "sinks": {
+          "regex": [
+            "notify\\s*\\(",
+            "notifyAsPackage\\s*\\(",
+            "notifyAsUser\\s*\\(",
+            "onBindSlice\\s*\\(",
+            "onCreatePermissionRequest\\s*\\(",
+            "send\\s*\\(",
+            "set\\s*\\(",
+            "setAlarmClock\\s*\\(",
+            "setAndAllowWhileIdle\\s*\\(",
+            "setExact\\s*\\(",
+            "setExactAndAllowWhileIdle\\s*\\(",
+            "setInexactRepeating\\s*\\(",
+            "setRepeating\\s*\\(",
+            "setResult\\s*\\(",
+            "setWindow\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 59,
+        "sinks": {
+          "regex": [
+            "Template\\s*\\(",
+            "applyTemplates\\s*\\(",
+            "callFunction\\s*\\(",
+            "callMethod\\s*\\(",
+            "callTemplate\\s*\\(",
+            "callable\\s*\\(",
+            "compile\\s*\\(",
+            "createTemplate\\s*\\(",
+            "eval\\s*\\(",
+            "evalToBoolean\\s*\\(",
+            "evalToString\\s*\\(",
+            "evaluate\\s*\\(",
+            "evaluateJavascript\\s*\\(",
+            "execute\\s*\\(",
+            "executeAllExpression\\s*\\(",
+            "executeExpression\\s*\\(",
+            "executeSetExpression\\s*\\(",
+            "findPattern\\s*\\(",
+            "findString\\s*\\(",
+            "findText\\s*\\(",
+            "findValue\\s*\\(",
+            "get\\s*\\(",
+            "getDirectValue\\s*\\(",
+            "getFieldValue\\s*\\(",
+            "getFormatted\\s*\\(",
+            "getLiteralTemplate\\s*\\(",
+            "getProperty\\s*\\(",
+            "getTemplate\\s*\\(",
+            "getText\\s*\\(",
+            "getValue\\s*\\(",
+            "getValueUsingOgnl\\s*\\(",
+            "hasKey\\s*\\(",
+            "isTrue\\s*\\(",
+            "makeSelectList\\s*\\(",
+            "me\\s*\\(",
+            "mergeTemplate\\s*\\(",
+            "parse\\s*\\(",
+            "parseClass\\s*\\(",
+            "prepare\\s*\\(",
+            "process\\s*\\(",
+            "processThrottled\\s*\\(",
+            "putStringResource\\s*\\(",
+            "putTemplate\\s*\\(",
+            "render\\s*\\(",
+            "renderForResult\\s*\\(",
+            "run\\s*\\(",
+            "set\\s*\\(",
+            "setParameter\\s*\\(",
+            "setProperties\\s*\\(",
+            "setProperty\\s*\\(",
+            "setValue\\s*\\(",
+            "transform\\s*\\(",
+            "translateVariables\\s*\\(",
+            "translateVariablesCollection\\s*\\(",
+            "tryFindValue\\s*\\(",
+            "tryFindValueWhenExpressionIsNotNull\\s*\\(",
+            "trySetValue\\s*\\(",
+            "xy\\s*\\(",
+            "xyz\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sinks": {
+          "regex": [
+            "\\.delete\\(",
+            "\\.update\\(",
+            "saveAndFlush\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(delete|update|save|saveAndFlush|remove)$\"))"
+          ]
+        },
+        "verification_logic": "验证当前控制器方法体中是否包含用户属主拦截比对（如 sessionUserId == dataOwnerId）。若无任何鉴权比对代码，判定为越权漏洞。",
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "@PathVariable",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-434",
+        "category": "UnrestrictedUpload",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sinks": {
+          "regex": [
+            "\\.transferTo\\(",
+            "Files\\.write\\(",
+            "IOUtils\\.copy\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(transferTo|write|copy)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "MultipartFile",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-352",
+        "category": "CsrfBypass",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sinks": {
+          "regex": [
+            "\\.updatePassword\\(",
+            "\\.deleteUser\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(updatePassword|deleteUser|changeEmail)$\" ))"
+          ]
+        },
+        "verification_logic": "检查该写操作控制器或对应配置类是否禁用了 CSRF 防御令牌校验（如 http.csrf().disable()）。",
+        "sources": {
+          "regex": [
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-20",
+        "category": "CrossBoundaryTrustViolation",
+        "type": "PROPERTY_CHECK",
+        "source_reason": "新模型: 跨进程信任边界破坏. Android Bluetooth MAP 把拼字符串 selection 透传给外部 Provider 时 selectionArgs=null",
+        "sinks": {
+          "regex": [
+            "ContentResolver\\.query\\s*\\(",
+            "ContentResolver\\.notifyChange\\s*\\(",
+            "Binder\\.transact\\s*\\(",
+            "broadcastIntent",
+            "sendBroadcast"
+          ],
+          "ast_patterns": []
+        },
+        "verification_logic": "判定规则: 调用 ContentResolver.query/Binder.transact/Intent extras 时, 若 free-text 参数(如 selection)含字符串拼接 AND 参数化字段(如 selectionArgs)缺省为 null, 判定 REACHABLE_ACROSS_BOUNDARY; 若强制参数化(? 占位 + 绑定), 阻断 UNREACHABLE.",
+        "sources": {
+          "regex": [
+            "selection",
+            "where",
+            "command",
+            "args"
+          ]
+        },
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "provenance": "codeql-jvm-alias"
+      }
+    ],
+    "scala": [
+      {
+        "cwe_id": "CWE-113",
+        "category": "ResponseSplitting",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 4,
+        "sinks": {
+          "regex": [
+            "addCookie\\s*\\(",
+            "addHeader\\s*\\(",
+            "header\\s*\\(",
+            "setHeader\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-22",
+        "category": "PathTraversal",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 184,
+        "sinks": {
+          "regex": [
+            "ANTLRFileStream\\s*\\(",
+            "AtomicFileWriter\\s*\\(",
+            "FileBackedDataSource\\s*\\(",
+            "FileDataSource\\s*\\(",
+            "FileHandler\\s*\\(",
+            "FileImageOutputStream\\s*\\(",
+            "FileOutputStream\\s*\\(",
+            "FileOutputStreamFactory\\s*\\(",
+            "FileSystemResource\\s*\\(",
+            "FileUrlResource\\s*\\(",
+            "FileWriter\\s*\\(",
+            "FileWriterUtil\\s*\\(",
+            "FileWriterWithEncoding\\s*\\(",
+            "GenericRecordJsonWriter\\s*\\(",
+            "GenericRecordXmlWriter\\s*\\(",
+            "LockableFileWriter\\s*\\(",
+            "MoveFileExA\\s*\\(",
+            "OldExcelExtractor\\s*\\(",
+            "POIFSFileSystem\\s*\\(",
+            "PathResource\\s*\\(",
+            "PrintStream\\s*\\(",
+            "PrintWriter\\s*\\(",
+            "RandomAccessFile\\s*\\(",
+            "ReopenableFileOutputStream\\s*\\(",
+            "RewindableFileOutputStream\\s*\\(",
+            "SeekableFileInput\\s*\\(",
+            "StreamResult\\s*\\(",
+            "StreamTaskListener\\s*\\(",
+            "SyncableFileOutputStream\\s*\\(",
+            "URIResolver\\s*\\(",
+            "UrlResource\\s*\\(",
+            "VBAMacroReader\\s*\\(",
+            "XmlFile\\s*\\(",
+            "XmlStreamWriter\\s*\\(",
+            "ZipFile\\s*\\(",
+            "ZipURLInstaller\\s*\\(",
+            "accept\\s*\\(",
+            "addPicture\\s*\\(",
+            "appendBytes\\s*\\(",
+            "appendText\\s*\\(",
+            "appendTo\\s*\\(",
+            "asByteSink\\s*\\(",
+            "asCharSink\\s*\\(",
+            "bufferedWriter\\s*\\(",
+            "buildDir\\s*\\(",
+            "checkout\\s*\\(",
+            "copy\\s*\\(",
+            "copyDirectory\\s*\\(",
+            "copyDirectoryToDirectory\\s*\\(",
+            "copyFile\\s*\\(",
+            "copyFileToDirectory\\s*\\(",
+            "copyFiles\\s*\\(",
+            "copyFrom\\s*\\(",
+            "copyInputStreamToFile\\s*\\(",
+            "copyRecursiveTo\\s*\\(",
+            "copyRecursively\\s*\\(",
+            "copyTo\\s*\\(",
+            "copyToByteArray\\s*\\(",
+            "copyToDirectory\\s*\\(",
+            "copyToFile\\s*\\(",
+            "copyToWithPermission\\s*\\(",
+            "copyURLToFile\\s*\\(",
+            "create\\s*\\(",
+            "createDirectories\\s*\\(",
+            "createDirectory\\s*\\(",
+            "createExtractor\\s*\\(",
+            "createFile\\s*\\(",
+            "createFileCodeWriter\\s*\\(",
+            "createLink\\s*\\(",
+            "createNewFile\\s*\\(",
+            "createOutputStream\\s*\\(",
+            "createPutObjectRequest\\s*\\(",
+            "createRelative\\s*\\(",
+            "createSymbolicLink\\s*\\(",
+            "createTempDirectory\\s*\\(",
+            "createTempFile\\s*\\(",
+            "delete\\s*\\(",
+            "deleteDirectory\\s*\\(",
+            "deleteFile\\s*\\(",
+            "deleteIfExists\\s*\\(",
+            "deleteOnExit\\s*\\(",
+            "deleteQuietly\\s*\\(",
+            "deleteRecursively\\s*\\(",
+            "destination\\s*\\(",
+            "dump\\s*\\(",
+            "exists\\s*\\(",
+            "extract\\s*\\(",
+            "extractAll\\s*\\(",
+            "filter\\s*\\(",
+            "filterList\\s*\\(",
+            "filterSet\\s*\\(",
+            "forceDelete\\s*\\(",
+            "forceDeleteOnExit\\s*\\(",
+            "forceMkdir\\s*\\(",
+            "forceMkdirParent\\s*\\(",
+            "fromFile\\s*\\(",
+            "getCanonicalPath\\s*\\(",
+            "getChild\\s*\\(",
+            "getFile\\s*\\(",
+            "getFileSystem\\s*\\(",
+            "getFileToWrite\\s*\\(",
+            "getRandomAccess\\s*\\(",
+            "getResource\\s*\\(",
+            "getResourceAsStream\\s*\\(",
+            "getWriter\\s*\\(",
+            "install\\s*\\(",
+            "lines\\s*\\(",
+            "loadFile\\s*\\(",
+            "mkdir\\s*\\(",
+            "mkdirs\\s*\\(",
+            "move\\s*\\(",
+            "moveDirectory\\s*\\(",
+            "moveDirectoryToDirectory\\s*\\(",
+            "moveFile\\s*\\(",
+            "moveFileToDirectory\\s*\\(",
+            "moveToDirectory\\s*\\(",
+            "newBufferedReader\\s*\\(",
+            "newBufferedWriter\\s*\\(",
+            "newByteChannel\\s*\\(",
+            "newFileSystem\\s*\\(",
+            "newInputStream\\s*\\(",
+            "newOutputStream\\s*\\(",
+            "newWriter\\s*\\(",
+            "open\\s*\\(",
+            "openInputStream\\s*\\(",
+            "openOutputStream\\s*\\(",
+            "openReader\\s*\\(",
+            "outputStream\\s*\\(",
+            "parse\\s*\\(",
+            "parseSingle\\s*\\(",
+            "printWriter\\s*\\(",
+            "read\\s*\\(",
+            "readAllBytes\\s*\\(",
+            "readAllLines\\s*\\(",
+            "readData\\s*\\(",
+            "readFileToByteArray\\s*\\(",
+            "readFromOffset\\s*\\(",
+            "readLines\\s*\\(",
+            "readString\\s*\\(",
+            "readToString\\s*\\(",
+            "readValue\\s*\\(",
+            "redirectError\\s*\\(",
+            "redirectOutput\\s*\\(",
+            "removeDir\\s*\\(",
+            "rename\\s*\\(",
+            "renameOrMoveFilesInParallel\\s*\\(",
+            "renameTo\\s*\\(",
+            "resolve\\s*\\(",
+            "result\\s*\\(",
+            "rewriteHudsonWar\\s*\\(",
+            "serializeToFile\\s*\\(",
+            "serveFile\\s*\\(",
+            "serveLocalizedFile\\s*\\(",
+            "setDest\\s*\\(",
+            "setExecutable\\s*\\(",
+            "setFile\\s*\\(",
+            "setLastModified\\s*\\(",
+            "setReadOnly\\s*\\(",
+            "setReadable\\s*\\(",
+            "setResource\\s*\\(",
+            "setTodir\\s*\\(",
+            "setTofile\\s*\\(",
+            "setWritable\\s*\\(",
+            "source\\s*\\(",
+            "startsWith\\s*\\(",
+            "staticResource\\s*\\(",
+            "tar\\s*\\(",
+            "touch\\s*\\(",
+            "trustManager\\s*\\(",
+            "unzipFrom\\s*\\(",
+            "updateIntegrityHMAC\\s*\\(",
+            "valueOf\\s*\\(",
+            "viewFile\\s*\\(",
+            "viewFileOld\\s*\\(",
+            "write\\s*\\(",
+            "writeByteArrayToFile\\s*\\(",
+            "writeBytes\\s*\\(",
+            "writeLines\\s*\\(",
+            "writeString\\s*\\(",
+            "writeStringToFile\\s*\\(",
+            "writeText\\s*\\(",
+            "writeTo\\s*\\(",
+            "writeValue\\s*\\(",
+            "writer\\s*\\("
+          ],
+          "ast_patterns": [
+            "(object_creation_expression type: (type_identifier) @type (#match? @type \"^(File|FileInputStream|FileOutputStream)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-501",
+        "category": "TrustBoundaryViolation",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 6,
+        "sinks": {
+          "regex": [
+            "addingToSession\\s*\\(",
+            "put\\s*\\(",
+            "putValue\\s*\\(",
+            "setAttribute\\s*\\(",
+            "setSession\\s*\\(",
+            "withSession\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-502",
+        "category": "Deserialization",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 12,
+        "sinks": {
+          "regex": [
+            "borrow\\s*\\(",
+            "deserialize\\s*\\(",
+            "fromJSON\\s*\\(",
+            "jsonToJava\\s*\\(",
+            "load\\s*\\(",
+            "loadStream\\s*\\(",
+            "loadStreamOfType\\s*\\(",
+            "loadType\\s*\\(",
+            "read\\s*\\(",
+            "readObject\\s*\\(",
+            "readUnshared\\s*\\(",
+            "unmarshal\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(readObject|parseObject|readValue)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestBody",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-601",
+        "category": "OpenRedirect",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 20,
+        "sinks": {
+          "regex": [
+            "ModelAndView\\s*\\(",
+            "add\\s*\\(",
+            "attach\\s*\\(",
+            "browse\\s*\\(",
+            "forward\\s*\\(",
+            "getClassName\\s*\\(",
+            "getPackageName\\s*\\(",
+            "getRequestDispatcher\\s*\\(",
+            "open\\s*\\(",
+            "redirectTo\\s*\\(",
+            "replace\\s*\\(",
+            "seeOther\\s*\\(",
+            "sendRedirect\\s*\\(",
+            "sendRedirect2\\s*\\(",
+            "setClass\\s*\\(",
+            "setClassName\\s*\\(",
+            "setComponent\\s*\\(",
+            "setPackage\\s*\\(",
+            "setViewName\\s*\\(",
+            "temporaryRedirect\\s*\\("
+          ],
+          "ast_patterns": [
+            "(call_expression function: (identifier) @func (#match? @func \"^(sendRedirect|redirect|Response.seeOther)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "dest",
+            "redirect",
+            "target",
+            "url"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-611",
+        "category": "XxeXmlParser",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 28,
+        "sinks": {
+          "regex": [
+            "ACCESS_EXTERNAL_DTD\\s*\\(",
+            "ACCESS_EXTERNAL_SCHEMA\\s*\\(",
+            "ACCESS_EXTERNAL_STYLESHEET\\s*\\(",
+            "FEATURE_SECURE_PROCESSING\\s*\\(",
+            "IS_SUPPORTING_EXTERNAL_ENTITIES\\s*\\(",
+            "SUPPORT_DTD\\s*\\(",
+            "build\\s*\\(",
+            "createXMLEventReader\\s*\\(",
+            "createXMLStreamReader\\s*\\(",
+            "evaluate\\s*\\(",
+            "format\\s*\\(",
+            "getXMLReader\\s*\\(",
+            "newDocumentBuilder\\s*\\(",
+            "newSAXParser\\s*\\(",
+            "newSchema\\s*\\(",
+            "newTransformer\\s*\\(",
+            "newTransformerHandler\\s*\\(",
+            "newXMLFilter\\s*\\(",
+            "parse\\s*\\(",
+            "provide\\s*\\(",
+            "read\\s*\\(",
+            "setAttribute\\s*\\(",
+            "setFeature\\s*\\(",
+            "setProperty\\s*\\(",
+            "setXMLReader\\s*\\(",
+            "transform\\s*\\(",
+            "unmarshal\\s*\\(",
+            "validate\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^newInstance$\") operand: (identifier) @op (#match? @op \"^(DocumentBuilderFactory|SAXParserFactory|XMLInputFactory)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestBody",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-643",
+        "category": "XPathInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 18,
+        "sinks": {
+          "regex": [
+            "compile\\s*\\(",
+            "createPattern\\s*\\(",
+            "createXPath\\s*\\(",
+            "createXPathFilter\\s*\\(",
+            "evaluate\\s*\\(",
+            "evaluateExpression\\s*\\(",
+            "getValue\\s*\\(",
+            "getValueList\\s*\\(",
+            "getValueNode\\s*\\(",
+            "getValueString\\s*\\(",
+            "isExist\\s*\\(",
+            "matches\\s*\\(",
+            "numberValueOf\\s*\\(",
+            "selectNodes\\s*\\(",
+            "selectObject\\s*\\(",
+            "selectSingleNode\\s*\\(",
+            "sort\\s*\\(",
+            "valueOf\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-74",
+        "category": "JndiInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 11,
+        "sinks": {
+          "regex": [
+            "connect\\s*\\(",
+            "doLookup\\s*\\(",
+            "findByDn\\s*\\(",
+            "list\\s*\\(",
+            "listBindings\\s*\\(",
+            "lookup\\s*\\(",
+            "lookupContext\\s*\\(",
+            "lookupLink\\s*\\(",
+            "rename\\s*\\(",
+            "search\\s*\\(",
+            "searchForObject\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-78",
+        "category": "CommandInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 15,
+        "sinks": {
+          "regex": [
+            "ProcessBuilder\\s*\\(",
+            "addArguments\\s*\\(",
+            "addVariableToEnvironment\\s*\\(",
+            "cmdAsSingleString\\s*\\(",
+            "cmds\\s*\\(",
+            "command\\s*\\(",
+            "decorateByEnv\\s*\\(",
+            "directory\\s*\\(",
+            "envs\\s*\\(",
+            "exec\\s*\\(",
+            "execute\\s*\\(",
+            "launch\\s*\\(",
+            "launchChannel\\s*\\(",
+            "parse\\s*\\(",
+            "runCommand\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#eq? @name \"exec\") arguments: (argument_list) @args)",
+            "(object_creation_expression type: (type_identifier) @type (#eq? @type \"ProcessBuilder\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@PathVariable",
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-79",
+        "category": "Xss",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 11,
+        "sinks": {
+          "regex": [
+            "errorWithMarkup\\s*\\(",
+            "html\\s*\\(",
+            "literalHtml\\s*\\(",
+            "loadData\\s*\\(",
+            "loadDataWithBaseURL\\s*\\(",
+            "okWithMarkup\\s*\\(",
+            "respond\\s*\\(",
+            "setEntity\\s*\\(",
+            "updateEntity\\s*\\(",
+            "warningWithMarkup\\s*\\(",
+            "write\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(write|print|println)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-89",
+        "category": "SqlInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 58,
+        "sinks": {
+          "regex": [
+            "Annotated\\s*\\(",
+            "BatchSqlUpdate\\s*\\(",
+            "DefaultConstraintsRequest\\s*\\(",
+            "MappingSqlQuery\\s*\\(",
+            "MappingSqlQueryWithParameters\\s*\\(",
+            "RawSqlStatement\\s*\\(",
+            "SqlCall\\s*\\(",
+            "SqlFunction\\s*\\(",
+            "SqlQuery\\s*\\(",
+            "SqlUpdate\\s*\\(",
+            "UpdatableSqlQuery\\s*\\(",
+            "addBatch\\s*\\(",
+            "addOneColumn\\s*\\(",
+            "analyticsQuery\\s*\\(",
+            "batchUpdate\\s*\\(",
+            "blobFileDescriptorForQuery\\s*\\(",
+            "compileStatement\\s*\\(",
+            "console\\s*\\(",
+            "createDbFromSqlStatements\\s*\\(",
+            "createMutationQuery\\s*\\(",
+            "createNativeMutationQuery\\s*\\(",
+            "createNativeQuery\\s*\\(",
+            "createQuery\\s*\\(",
+            "createSQLQuery\\s*\\(",
+            "createSelectionQuery\\s*\\(",
+            "delete\\s*\\(",
+            "execPerConnectionSQL\\s*\\(",
+            "execSQL\\s*\\(",
+            "execute\\s*\\(",
+            "executeLargeUpdate\\s*\\(",
+            "executeQuery\\s*\\(",
+            "executeUpdate\\s*\\(",
+            "getColumns\\s*\\(",
+            "getPrimaryKeys\\s*\\(",
+            "insert\\s*\\(",
+            "longForQuery\\s*\\(",
+            "prepareCall\\s*\\(",
+            "prepareStatement\\s*\\(",
+            "query\\s*\\(",
+            "queryForList\\s*\\(",
+            "queryForMap\\s*\\(",
+            "queryForObject\\s*\\(",
+            "queryForRowSet\\s*\\(",
+            "queryForStream\\s*\\(",
+            "queryNumEntries\\s*\\(",
+            "queryStreaming\\s*\\(",
+            "queryWithFactory\\s*\\(",
+            "rawQuery\\s*\\(",
+            "rawQueryWithFactory\\s*\\(",
+            "run\\s*\\(",
+            "selectAll\\s*\\(",
+            "selectOne\\s*\\(",
+            "setSql\\s*\\(",
+            "sinkStuff\\s*\\(",
+            "stringForQuery\\s*\\(",
+            "update\\s*\\(",
+            "updatePartitionColumnStatistics\\s*\\(",
+            "updateWithOnConflict\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name arguments: (argument_list (binary_expression operator: \"+\") @expr) (#match? @name \"^(query|execute|createQuery|createNativeQuery)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-90",
+        "category": "LdapInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 8,
+        "sinks": {
+          "regex": [
+            "asyncSearch\\s*\\(",
+            "authenticate\\s*\\(",
+            "find\\s*\\(",
+            "findOne\\s*\\(",
+            "search\\s*\\(",
+            "searchForContext\\s*\\(",
+            "searchForEntry\\s*\\(",
+            "searchForObject\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-918",
+        "category": "Ssrf",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 106,
+        "sinks": {
+          "regex": [
+            "BasicClassicHttpRequest\\s*\\(",
+            "BasicHttpEntityEnclosingRequest\\s*\\(",
+            "BasicHttpRequest\\s*\\(",
+            "BasicRequestProducer\\s*\\(",
+            "ConfigurableHttpRequest\\s*\\(",
+            "DatagramPacket\\s*\\(",
+            "DefaultFullHttpRequest\\s*\\(",
+            "DefaultHttpRequest\\s*\\(",
+            "Delete\\s*\\(",
+            "DriverManagerDataSource\\s*\\(",
+            "FullDuplexHttpStream\\s*\\(",
+            "GET\\s*\\(",
+            "Get\\s*\\(",
+            "Head\\s*\\(",
+            "HikariConfig\\s*\\(",
+            "HttpDelete\\s*\\(",
+            "HttpGet\\s*\\(",
+            "HttpHead\\s*\\(",
+            "HttpOptions\\s*\\(",
+            "HttpPatch\\s*\\(",
+            "HttpPost\\s*\\(",
+            "HttpPut\\s*\\(",
+            "HttpTrace\\s*\\(",
+            "HttpUriRequestBase\\s*\\(",
+            "JellyContext\\s*\\(",
+            "Options\\s*\\(",
+            "Patch\\s*\\(",
+            "Post\\s*\\(",
+            "Put\\s*\\(",
+            "Request\\s*\\(",
+            "RequestEntity\\s*\\(",
+            "SimpleHttpRequest\\s*\\(",
+            "Socket\\s*\\(",
+            "Trace\\s*\\(",
+            "URIResolver\\s*\\(",
+            "URLClassLoader\\s*\\(",
+            "URLDataSource\\s*\\(",
+            "XmlStreamReader\\s*\\(",
+            "ZipURLInstaller\\s*\\(",
+            "baseUrl\\s*\\(",
+            "connect\\s*\\(",
+            "copy\\s*\\(",
+            "copyFile\\s*\\(",
+            "copyFileToDirectory\\s*\\(",
+            "copyURLToFile\\s*\\(",
+            "create\\s*\\(",
+            "delete\\s*\\(",
+            "doExecute\\s*\\(",
+            "download\\s*\\(",
+            "exchange\\s*\\(",
+            "execute\\s*\\(",
+            "get\\s*\\(",
+            "getConnection\\s*\\(",
+            "getContent\\s*\\(",
+            "getForEntity\\s*\\(",
+            "getForObject\\s*\\(",
+            "getResource\\s*\\(",
+            "getSession\\s*\\(",
+            "getURLClassLoader\\s*\\(",
+            "head\\s*\\(",
+            "headForHeaders\\s*\\(",
+            "installIfNecessaryFrom\\s*\\(",
+            "load\\s*\\(",
+            "loadCatalog\\s*\\(",
+            "loadJSON\\s*\\(",
+            "loadJSONHTML\\s*\\(",
+            "method\\s*\\(",
+            "newBuilder\\s*\\(",
+            "newCall\\s*\\(",
+            "newFileSystem\\s*\\(",
+            "newHttpRequest\\s*\\(",
+            "newInstance\\s*\\(",
+            "newRequest\\s*\\(",
+            "newWebSocket\\s*\\(",
+            "open\\s*\\(",
+            "openConnection\\s*\\(",
+            "openStream\\s*\\(",
+            "options\\s*\\(",
+            "optionsForAllow\\s*\\(",
+            "parse\\s*\\(",
+            "patch\\s*\\(",
+            "patchForObject\\s*\\(",
+            "post\\s*\\(",
+            "postForEntity\\s*\\(",
+            "postForLocation\\s*\\(",
+            "postForObject\\s*\\(",
+            "put\\s*\\(",
+            "readBytes\\s*\\(",
+            "readText\\s*\\(",
+            "resolve\\s*\\(",
+            "reverseProxyTo\\s*\\(",
+            "send\\s*\\(",
+            "setAddress\\s*\\(",
+            "setHttpHost\\s*\\(",
+            "setJdbcUrl\\s*\\(",
+            "setSocketAddress\\s*\\(",
+            "setURI\\s*\\(",
+            "setUri\\s*\\(",
+            "setUrl\\s*\\(",
+            "staticResource\\s*\\(",
+            "target\\s*\\(",
+            "toByteArray\\s*\\(",
+            "toString\\s*\\(",
+            "trace\\s*\\(",
+            "uri\\s*\\(",
+            "url\\s*\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(execute|openConnection|getForObject|postForObject|exchange)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-926",
+        "category": "IntentRedirection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 21,
+        "sinks": {
+          "regex": [
+            "bindService\\s*\\(",
+            "bindServiceAsUser\\s*\\(",
+            "sendBroadcast\\s*\\(",
+            "sendBroadcastAsUser\\s*\\(",
+            "sendBroadcastWithMultiplePermissions\\s*\\(",
+            "sendStickyBroadcast\\s*\\(",
+            "sendStickyBroadcastAsUser\\s*\\(",
+            "sendStickyOrderedBroadcast\\s*\\(",
+            "sendStickyOrderedBroadcastAsUser\\s*\\(",
+            "startActivities\\s*\\(",
+            "startActivity\\s*\\(",
+            "startActivityAsCaller\\s*\\(",
+            "startActivityAsUser\\s*\\(",
+            "startActivityForResult\\s*\\(",
+            "startActivityForResultAsUser\\s*\\(",
+            "startActivityFromChild\\s*\\(",
+            "startActivityFromFragment\\s*\\(",
+            "startActivityIfNeeded\\s*\\(",
+            "startForegroundService\\s*\\(",
+            "startService\\s*\\(",
+            "startServiceAsUser\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-927",
+        "category": "PendingIntent",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 15,
+        "sinks": {
+          "regex": [
+            "notify\\s*\\(",
+            "notifyAsPackage\\s*\\(",
+            "notifyAsUser\\s*\\(",
+            "onBindSlice\\s*\\(",
+            "onCreatePermissionRequest\\s*\\(",
+            "send\\s*\\(",
+            "set\\s*\\(",
+            "setAlarmClock\\s*\\(",
+            "setAndAllowWhileIdle\\s*\\(",
+            "setExact\\s*\\(",
+            "setExactAndAllowWhileIdle\\s*\\(",
+            "setInexactRepeating\\s*\\(",
+            "setRepeating\\s*\\(",
+            "setResult\\s*\\(",
+            "setWindow\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-94",
+        "category": "CodeInjection",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sink_count": 59,
+        "sinks": {
+          "regex": [
+            "Template\\s*\\(",
+            "applyTemplates\\s*\\(",
+            "callFunction\\s*\\(",
+            "callMethod\\s*\\(",
+            "callTemplate\\s*\\(",
+            "callable\\s*\\(",
+            "compile\\s*\\(",
+            "createTemplate\\s*\\(",
+            "eval\\s*\\(",
+            "evalToBoolean\\s*\\(",
+            "evalToString\\s*\\(",
+            "evaluate\\s*\\(",
+            "evaluateJavascript\\s*\\(",
+            "execute\\s*\\(",
+            "executeAllExpression\\s*\\(",
+            "executeExpression\\s*\\(",
+            "executeSetExpression\\s*\\(",
+            "findPattern\\s*\\(",
+            "findString\\s*\\(",
+            "findText\\s*\\(",
+            "findValue\\s*\\(",
+            "get\\s*\\(",
+            "getDirectValue\\s*\\(",
+            "getFieldValue\\s*\\(",
+            "getFormatted\\s*\\(",
+            "getLiteralTemplate\\s*\\(",
+            "getProperty\\s*\\(",
+            "getTemplate\\s*\\(",
+            "getText\\s*\\(",
+            "getValue\\s*\\(",
+            "getValueUsingOgnl\\s*\\(",
+            "hasKey\\s*\\(",
+            "isTrue\\s*\\(",
+            "makeSelectList\\s*\\(",
+            "me\\s*\\(",
+            "mergeTemplate\\s*\\(",
+            "parse\\s*\\(",
+            "parseClass\\s*\\(",
+            "prepare\\s*\\(",
+            "process\\s*\\(",
+            "processThrottled\\s*\\(",
+            "putStringResource\\s*\\(",
+            "putTemplate\\s*\\(",
+            "render\\s*\\(",
+            "renderForResult\\s*\\(",
+            "run\\s*\\(",
+            "set\\s*\\(",
+            "setParameter\\s*\\(",
+            "setProperties\\s*\\(",
+            "setProperty\\s*\\(",
+            "setValue\\s*\\(",
+            "transform\\s*\\(",
+            "translateVariables\\s*\\(",
+            "translateVariablesCollection\\s*\\(",
+            "tryFindValue\\s*\\(",
+            "tryFindValueWhenExpressionIsNotNull\\s*\\(",
+            "trySetValue\\s*\\(",
+            "xy\\s*\\(",
+            "xyz\\s*\\("
+          ],
+          "ast_patterns": []
+        },
+        "sources": {
+          "regex": []
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-285",
+        "category": "ImproperAuthorization",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sinks": {
+          "regex": [
+            "\\.delete\\(",
+            "\\.update\\(",
+            "saveAndFlush\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(delete|update|save|saveAndFlush|remove)$\"))"
+          ]
+        },
+        "verification_logic": "验证当前控制器方法体中是否包含用户属主拦截比对（如 sessionUserId == dataOwnerId）。若无任何鉴权比对代码，判定为越权漏洞。",
+        "sources": {
+          "regex": [
+            "@RequestParam",
+            "@PathVariable",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-434",
+        "category": "UnrestrictedUpload",
+        "type": "TAINT_ANALYSIS",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sinks": {
+          "regex": [
+            "\\.transferTo\\(",
+            "Files\\.write\\(",
+            "IOUtils\\.copy\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(transferTo|write|copy)$\"))"
+          ]
+        },
+        "sources": {
+          "regex": [
+            "MultipartFile",
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-352",
+        "category": "CsrfBypass",
+        "type": "PROPERTY_CHECK",
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "sinks": {
+          "regex": [
+            "\\.updatePassword\\(",
+            "\\.deleteUser\\("
+          ],
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @name (#match? @name \"^(updatePassword|deleteUser|changeEmail)$\" ))"
+          ]
+        },
+        "verification_logic": "检查该写操作控制器或对应配置类是否禁用了 CSRF 防御令牌校验（如 http.csrf().disable()）。",
+        "sources": {
+          "regex": [
+            "HttpServletRequest"
+          ]
+        },
+        "provenance": "codeql-jvm-alias"
+      },
+      {
+        "cwe_id": "CWE-20",
+        "category": "CrossBoundaryTrustViolation",
+        "type": "PROPERTY_CHECK",
+        "source_reason": "新模型: 跨进程信任边界破坏. Android Bluetooth MAP 把拼字符串 selection 透传给外部 Provider 时 selectionArgs=null",
+        "sinks": {
+          "regex": [
+            "ContentResolver\\.query\\s*\\(",
+            "ContentResolver\\.notifyChange\\s*\\(",
+            "Binder\\.transact\\s*\\(",
+            "broadcastIntent",
+            "sendBroadcast"
+          ],
+          "ast_patterns": []
+        },
+        "verification_logic": "判定规则: 调用 ContentResolver.query/Binder.transact/Intent extras 时, 若 free-text 参数(如 selection)含字符串拼接 AND 参数化字段(如 selectionArgs)缺省为 null, 判定 REACHABLE_ACROSS_BOUNDARY; 若强制参数化(? 占位 + 绑定), 阻断 UNREACHABLE.",
+        "sources": {
+          "regex": [
+            "selection",
+            "where",
+            "command",
+            "args"
+          ]
+        },
+        "codeql_model": "codeql-jvm-shared-with-java",
+        "provenance": "codeql-jvm-alias"
+      }
+    ],
     "shell": [],
     "perl": [],
     "powershell": []
@@ -3661,1471 +5917,6 @@
             "r\\.URL|r\\.FormValue|req\\.Body|c\\.Param"
           ]
         }
-      }
-    ],
-    "php": [
-      {
-        "cwe_id": "CWE-78",
-        "category": "CommandExecution",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "exec\\(",
-            "system\\(",
-            "shell_exec\\(",
-            "passthru\\(",
-            "popen\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (name) @func (#match? @func \"^(exec|system|shell_exec|passthru|proc_open|popen)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_GET",
-            "\\$_POST",
-            "\\$_REQUEST"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-94",
-        "category": "CodeExecution",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "eval\\(",
-            "assert\\(",
-            "create_function\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (name) @func (#match? @func \"^(eval|assert|create_function|include|require)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_GET",
-            "\\$_POST"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-89",
-        "category": "SqlInjection",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "mysqli_query\\(",
-            "PDO::query\\(",
-            "\\->query\\(.*\\$.*\\)"
-          ],
-          "ast_patterns": [
-            "(member_call_expression name: (name) @name (#match? @name \"^(query|exec|execute|prepare)$\"))",
-            "(call_expression function: (name) @func (#match? @func \"^(mysqli_query|pg_query)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_GET",
-            "\\$_POST"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-22",
-        "category": "FileSystemAccess",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "file_get_contents\\(",
-            "readfile\\(",
-            "fopen\\(",
-            "include\\(",
-            "require\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (name) @func (#match? @func \"^(file_get_contents|readfile|fopen|file|include|require)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_GET",
-            "\\$_POST"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-918",
-        "category": "Request",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "curl_exec\\(",
-            "file_get_contents\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (name) @func (#match? @func \"^(curl_exec|file_get_contents|get_headers)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_GET",
-            "\\$_POST"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-79",
-        "category": "XssSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "echo\\s+\\$.*",
-            "print\\s+\\$.*"
-          ],
-          "ast_patterns": [
-            "(echo_statement) @echo",
-            "(print_intrinsic) @print"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_GET",
-            "\\$_POST"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-434",
-        "category": "UnrestrictedUpload",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "move_uploaded_file\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (name) @func (#match? @func \"^(move_uploaded_file|copy)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_FILES"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-502",
-        "category": "Deserialization",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "unserialize\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (name) @func (#match? @func \"^(unserialize)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_GET",
-            "\\$_POST"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-601",
-        "category": "UrlRedirection",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "header\\(['\"]Location:"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (name) @func (#match? @func \"^(header)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "\\$_GET"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-285",
-        "category": "ImproperAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "UPDATE\\s+.*WHERE",
-            "DELETE\\s+.*WHERE"
-          ],
-          "ast_patterns": [
-            "(member_call_expression name: (name) @name (#match? @name \"^(update|delete|save)$\"))"
-          ]
-        },
-        "verification_logic": "验证当前修改/删除数据的逻辑中，是否缺失了对于被操作记录的 owner 与当前 session 用户 ID 的相等比对校验。",
-        "sources": {
-          "regex": [
-            "\\$_SESSION"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-352",
-        "category": "CrossSiteRequestForgery",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "POST",
-            "PUT",
-            "DELETE",
-            "route"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(POST|PUT|DELETE|route)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证当前控制器方法或全局配置中是否启用了 CSRF 防御机制（如 CSRF Token 验证、SameSite Cookie 校验）。若无任何 CSRF 校验，判定为逻辑漏洞。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-862",
-        "category": "MissingAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "admin",
-            "manage",
-            "delete",
-            "update"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(admin|manage|delete|update)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。",
-        "provenance": "manual"
-      }
-    ],
-    "ruby": [
-      {
-        "cwe_id": "CWE-78",
-        "category": "CommandExecution",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "system\\(",
-            "exec\\(",
-            "IO\\.popen\\(",
-            "Open3\\.popen3\\("
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(system|exec|popen)$\"))",
-            "(subshell) @subshell"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "params\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-94",
-        "category": "CodeExecution",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "eval\\(",
-            "instance_eval\\(",
-            "class_eval\\("
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(eval|instance_eval|class_eval|module_eval)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "params\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-89",
-        "category": "SqlInjection",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "connection\\.execute\\(",
-            "\\.where\\(\".*#\\{.*\\}\"\\)"
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(execute|where|find_by_sql)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "params\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-22",
-        "category": "FileSystemAccess",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "File\\.open\\(",
-            "File\\.read\\(",
-            "IO\\.read\\("
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(open|read|readlines|write)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "params\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-918",
-        "category": "Request",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "Net::HTTP\\.get\\(",
-            "open\\("
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(get|post|request|open)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "params\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-79",
-        "category": "XssSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "\\.html_safe"
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(html_safe|raw)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "params\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-502",
-        "category": "Deserialization",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "Marshal\\.load\\(",
-            "YAML\\.load\\("
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(load|restore|unserialize)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "params\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-601",
-        "category": "UrlRedirection",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "redirect_to\\("
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(redirect_to)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "params\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-285",
-        "category": "ImproperAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "\\.update\\(",
-            "\\.destroy\\("
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(update|destroy|delete)$\"))"
-          ]
-        },
-        "verification_logic": "验证当前更新或删除控制器的逻辑体中，是否确实在执行前比对了当前 session 用户的 ID 权限。",
-        "sources": {
-          "regex": [
-            "session\\["
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-327",
-        "category": "WeakCrypto",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "Digest::MD5",
-            "Digest::SHA1"
-          ],
-          "ast_patterns": [
-            "(call method: (identifier) @func (#match? @func \"^(hexdigest|digest)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "password"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-352",
-        "category": "CrossSiteRequestForgery",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "post",
-            "put",
-            "delete",
-            "route"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(post|put|delete|route)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证当前控制器方法或全局配置中是否启用了 CSRF 防御机制（如 CSRF Token 验证、SameSite Cookie 校验）。若无任何 CSRF 校验，判定为逻辑漏洞。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-862",
-        "category": "MissingAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "admin",
-            "manage",
-            "delete",
-            "update"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(admin|manage|delete|update)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。",
-        "provenance": "manual"
-      }
-    ],
-    "swift": [
-      {
-        "cwe_id": "CWE-78",
-        "category": "CommandExecution",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "Process\\(\\)",
-            "posix_spawn"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(Process|posix_spawn|system)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "CommandLine\\.arguments"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-22",
-        "category": "FileSystemAccess",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "FileHandle\\(forReadingAtPath:",
-            "FileManager\\.default\\.contents\\(atPath:"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (member_expression title: (identifier) @fn (#match? @fn \"^(contents|data)$\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "CommandLine\\.arguments"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-918",
-        "category": "Request",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "URLSession\\.shared\\.dataTask\\(with:"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (member_expression property: (property_identifier) @fn (#match? @fn \"^(dataTask|uploadTask)$\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "CommandLine\\.arguments"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-119",
-        "category": "UnsafeMemoryAccess",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "UnsafeMutablePointer",
-            "withUnsafeBytes"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(withUnsafeBytes|withUnsafeMutableBytes|from_raw_parts)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "CommandLine\\.arguments"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-327",
-        "category": "WeakCrypto",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "CC_MD5",
-            "CC_SHA1"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(CC_MD5|CC_SHA1)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "password"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-79",
-        "category": "XssSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "loadHTMLString\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(loadHTMLString)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "CommandLine\\.arguments"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-285",
-        "category": "ImproperAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "SecKeyRawSign"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(SecKeyRawSign|SecKeyCreateSignature)$\"))"
-          ]
-        },
-        "verification_logic": "验证当前进行证书或公私钥签名验证的代码块中，是否包含防重放与属主合法性比对。",
-        "sources": {
-          "regex": [
-            "SecTrustEvaluate"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-295",
-        "category": "DisabledSslValidation",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "allowInvalidCertificates\\s*=\\s*true"
-          ],
-          "ast_patterns": [
-            "(assignment_expression left: (member_expression property: (property_identifier) @prop (#eq? @prop \"allowInvalidCertificates\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "URLSession"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-200",
-        "category": "InformationDisclosure",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "print\\(error"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(print|NSLog)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "error"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-312",
-        "category": "CleartextStorage",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "UserDefaults\\.standard\\.set"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (member_expression property: (property_identifier) @prop (#eq? @prop \"set\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "password",
-            "token"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-352",
-        "category": "CrossSiteRequestForgery",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "post",
-            "put",
-            "delete",
-            "route"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(post|put|delete|route)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证当前控制器方法或全局配置中是否启用了 CSRF 防御机制（如 CSRF Token 验证、SameSite Cookie 校验）。若无任何 CSRF 校验，判定为逻辑漏洞。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-601",
-        "category": "URLRedirection",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "redirect"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(redirect)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "url",
-            "target",
-            "dest",
-            "redirect"
-          ]
-        },
-        "verification_logic": "审查重定向的目标 URL 是否绑定了本地域名白名单或进行了安全校验，以防登录/登出等关键逻辑被外部未授权的重定向攻击所利用。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-862",
-        "category": "MissingAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "admin",
-            "manage",
-            "delete",
-            "update"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(admin|manage|delete|update)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-89",
-        "category": "SqlInjection",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "sqlite3_exec\\(_:_:_:_:_:\\)\\s*\\(",
-            "sqlite3_prepare\\(_:_:_:_:_:\\)\\s*\\(",
-            "sqlite3_prepare_v2\\(_:_:_:_:_:\\)\\s*\\(",
-            "sqlite3_prepare_v3\\(_:_:_:_:_:_:\\)\\s*\\(",
-            "sqlite3_prepare16\\(_:_:_:_:_:\\)\\s*\\(",
-            "sqlite3_prepare16_v2\\(_:_:_:_:_:\\)\\s*\\(",
-            "sqlite3_prepare16_v3\\(_:_:_:_:_:_:\\)\\s*\\("
-          ],
-          "ast_patterns": []
-        },
-        "sources": {
-          "regex": []
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-611",
-        "category": "XmlParserSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "init\\(xml:options:\\)\\s*\\(",
-            "init\\(xml:encoding:options:\\)\\s*\\("
-          ],
-          "ast_patterns": []
-        },
-        "sources": {
-          "regex": []
-        },
-        "provenance": "manual"
-      }
-    ],
-    "kotlin": [
-      {
-        "cwe_id": "CWE-78",
-        "category": "CommandExecution",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "Runtime\\.getRuntime\\(\\)\\.exec",
-            "ProcessBuilder"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (navigation_expression (identifier) @pkg (#eq? @pkg \"ProcessBuilder\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "@RequestParam",
-            "HttpServletRequest"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-89",
-        "category": "SqlInjection",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "jdbcTemplate\\.query",
-            "createQuery",
-            "createNativeQuery"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (navigation_expression (identifier) @fn (#match? @fn \"^(query|execute|createQuery)$\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "@RequestParam",
-            "HttpServletRequest"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-22",
-        "category": "FileSystemAccess",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "File\\(",
-            "FileInputStream\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @type (#match? @type \"^(File|FileInputStream)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "@RequestParam",
-            "HttpServletRequest"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-918",
-        "category": "UrlConnectionSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "HttpClient\\.execute",
-            "URL\\.openConnection"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (navigation_expression (identifier) @fn (#match? @fn \"^(execute|openConnection)$\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "@RequestParam",
-            "HttpServletRequest"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-502",
-        "category": "InsecureDeserialization",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "readObject\\(",
-            "readValue\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @fn (#match? @fn \"^(readObject|readValue)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "@RequestBody",
-            "HttpServletRequest"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-79",
-        "category": "XssSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "response\\.writer\\.write",
-            "response\\.outputStream\\.print"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(write|print|println)$\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "@RequestParam",
-            "HttpServletRequest"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-611",
-        "category": "XmlParserSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "DocumentBuilderFactory\\.newInstance"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(newInstance|parse)$\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "@RequestBody",
-            "HttpServletRequest"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-285",
-        "category": "ImproperAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "\\.delete\\(",
-            "\\.update\\(",
-            "saveAndFlush\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(delete|update|saveAndFlush)$\")))"
-          ]
-        },
-        "verification_logic": "验证在 Kotlin 对应的 Spring / Ktor 框架的写控制器中，是否包含对当前登录用户 Session ID 与数据所有者 ID 的安全核对逻辑。",
-        "sources": {
-          "regex": [
-            "HttpServletRequest"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-434",
-        "category": "UnrestrictedUpload",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "\\.transferTo\\(",
-            "Files\\.write\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(transferTo|write)$\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "MultipartFile"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-327",
-        "category": "WeakCrypto",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "MessageDigest\\.getInstance\\(\"MD5\"\\)",
-            "MessageDigest\\.getInstance\\(\"SHA-1\"\\)"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (navigation_expression target: (simple_identifier) @id (#match? @id \"^(getInstance)$\")))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "password"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-352",
-        "category": "CrossSiteRequestForgery",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "PostMapping",
-            "PutMapping",
-            "DeleteMapping"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(PostMapping|PutMapping|DeleteMapping)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证当前控制器方法或全局配置中是否启用了 CSRF 防御机制（如 CSRF Token 验证、SameSite Cookie 校验）。若无任何 CSRF 校验，判定为逻辑漏洞。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-601",
-        "category": "URLRedirection",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "sendRedirect",
-            "redirect"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(sendRedirect|redirect)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "url",
-            "target",
-            "dest",
-            "redirect"
-          ]
-        },
-        "verification_logic": "审查重定向的目标 URL 是否绑定了本地域名白名单或进行了安全校验，以防登录/登出等关键逻辑被外部未授权的重定向攻击所利用。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-862",
-        "category": "MissingAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "admin",
-            "manage",
-            "delete",
-            "update"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(admin|manage|delete|update)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。",
-        "provenance": "manual"
-      }
-    ],
-    "scala": [
-      {
-        "cwe_id": "CWE-78",
-        "category": "CommandExecution",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "Process\\(",
-            "\\.!\n",
-            "\\.!!\n"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(Process|exec)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "args",
-            "req\\.query"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-89",
-        "category": "SqlInjection",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "SQL\\(\".*#\\{.*\\}\"\\)",
-            "connection\\.createStatement\\(\\)\\.execute"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(SQL|execute|executeQuery)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "req\\.query"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-22",
-        "category": "FileSystemAccess",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "new File\\(",
-            "Source\\.fromFile\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(fromFile|open|read)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "req\\.query"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-918",
-        "category": "UrlConnectionSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "Http\\(url\\)",
-            "new URL\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(Http|URL)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "req\\.query"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-502",
-        "category": "Deserialization",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "readObject\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(readObject)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "req\\.body"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-79",
-        "category": "XssSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "response\\.writer\\.write",
-            "Html\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(Html|write)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "req\\.query"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-611",
-        "category": "XmlParserSink",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "XML\\.loadString\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(loadString|load)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "req\\.body"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-285",
-        "category": "ImproperAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "\\.update\\(",
-            "\\.delete\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(update|delete|save)$\"))"
-          ]
-        },
-        "verification_logic": "验证 Scala Play / Akka HTTP 框架写操作入口中，是否缺乏当前 Session 用户对该条记录的属主鉴权校验。",
-        "sources": {
-          "regex": [
-            "session"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-434",
-        "category": "UnrestrictedUpload",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "Files\\.write\\("
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(write|transferTo)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "Multipart"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-327",
-        "category": "WeakCrypto",
-        "type": "TAINT_ANALYSIS",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "MessageDigest\\.getInstance\\(\"MD5\"\\)"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(getInstance)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "password"
-          ]
-        },
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-352",
-        "category": "CrossSiteRequestForgery",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "PostMapping",
-            "PutMapping",
-            "DeleteMapping"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(PostMapping|PutMapping|DeleteMapping)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证当前控制器方法或全局配置中是否启用了 CSRF 防御机制（如 CSRF Token 验证、SameSite Cookie 校验）。若无任何 CSRF 校验，判定为逻辑漏洞。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-601",
-        "category": "URLRedirection",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "sendRedirect",
-            "redirect"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(sendRedirect|redirect)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "url",
-            "target",
-            "dest",
-            "redirect"
-          ]
-        },
-        "verification_logic": "审查重定向的目标 URL 是否绑定了本地域名白名单或进行了安全校验，以防登录/登出等关键逻辑被外部未授权的重定向攻击所利用。",
-        "provenance": "manual"
-      },
-      {
-        "cwe_id": "CWE-862",
-        "category": "MissingAuthorization",
-        "type": "PROPERTY_CHECK",
-        "codeql_model": "manual-heuristic (CodeQL 官方不支持该语言或 sink 走 Concepts.qll; 人工维护)",
-        "sinks": {
-          "regex": [
-            "admin",
-            "manage",
-            "delete",
-            "update"
-          ],
-          "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(admin|manage|delete|update)$\"))"
-          ]
-        },
-        "sources": {
-          "regex": [
-            "request",
-            "req",
-            "ctx",
-            "params"
-          ]
-        },
-        "verification_logic": "验证访问该敏感逻辑或后台管理路由时，是否在请求入口处配置了身份校验，或方法体头部是否有权限拦截校验，防止垂直越权访问。",
-        "provenance": "manual"
       }
     ],
     "shell": [
@@ -6351,5 +7142,6 @@
       }
     ]
   },
-  "codeql_revision_note": "codeql-cli/latest-203-g1c0ae0f2c95; sink 提取自 .model.yml sinkModel + 旧式 qll"
+  "codeql_revision_note": "codeql-cli/latest-203-g1c0ae0f2c95; sink 提取自 .model.yml sinkModel + 旧式 qll",
+  "semgrep_revision": "40b8c63f75dc7c22c8a77482d73bfb864b146f7e"
 }
