@@ -150,10 +150,15 @@ class ASTCoarseScanner:
         total_source_files = 0
         unknown_extensions = {}
 
+        # PROPERTY_CHECK 模式 (REQ-05) — 独立于语言识别, 对所有文件运行
+        # (exported_no_permission 的锚点是 AndroidManifest.xml, 不在 EXTENSION_MAP 内)
+        prop_patterns_raw = self.profile.get("property_check_patterns", [])
+        prop_patterns = prop_patterns_raw.get("patterns", []) if isinstance(prop_patterns_raw, dict) else prop_patterns_raw
+
         for root, _, files in os.walk(workspace_path):
             if any(ignored in root for ignored in ["node_modules", ".git", "scratch", "target", "build"]):
                 continue
-            
+
             for file in files:
                 ext = os.path.splitext(file)[1].lower()
                 lang = self.EXTENSION_MAP.get(ext)
@@ -167,52 +172,50 @@ class ASTCoarseScanner:
                 # L2 fallback 检测: 记录未能映射到预设语言的扩展名
                 if not lang:
                     unknown_extensions[ext] = unknown_extensions.get(ext, 0) + 1
-                    continue
 
-                if lang not in rules:
-                    continue
-
-                try:
-                    with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f_code:
-                        content = f_code.read()
-                except Exception:
-                    continue
-
-                # 提取配置中该语言的规则
-                if lang not in lang_hits:
-                    lang_hits[lang] = 0
-                lang_rules = rules[lang]
-                
-                # 收集 sinks 下的规则
-                ast_queries = []
-                regex_patterns = []
-                for item in lang_rules:
-                    sinks = item.get("sinks", {})
-                    if "ast_patterns" in sinks:
-                        ast_queries.extend(sinks["ast_patterns"])
-                    if "regex" in sinks:
-                        regex_patterns.extend(sinks["regex"])
-
-                ast_success = False
-                # 1. 尝试使用 Tree-Sitter 语法解析
-                if HAS_TREE_SITTER and ast_queries:
+                # 读取文件内容 (源码规则 + property-check 共用)
+                content = None
+                if (lang and lang in rules) or prop_patterns:
                     try:
-                        ast_candidates = self._scan_via_tree_sitter(content, lang, ast_queries, rel_path, rules[lang])
-                        candidates.extend(ast_candidates)
-                        ast_success = True
-                    except Exception as e:
-                        # 语法解析报错，打印日志并降级到正则
-                        sys.stderr.write(f"[Warning] AST scan failed for {rel_path}: {str(e)}. Falling back to regex...\n")
-                
-                # 2. 降级逻辑：如缺少环境或解析失败，退化为正则检索
-                if not ast_success and regex_patterns:
-                    line_candidates = self._scan_via_regex(content, regex_patterns, rel_path, lang, rules[lang])
-                    candidates.extend(line_candidates)
+                        with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f_code:
+                            content = f_code.read()
+                    except Exception:
+                        content = None
 
-                # 3. 扫描 property_check_patterns (REQ-05)
-                prop_patterns_raw = self.profile.get("property_check_patterns", [])
-                prop_patterns = prop_patterns_raw.get("patterns", []) if isinstance(prop_patterns_raw, dict) else prop_patterns_raw
-                if prop_patterns:
+                # ---- 源码语言规则扫描 (仅预设语言) ----
+                if content is not None and lang and lang in rules:
+                    if lang not in lang_hits:
+                        lang_hits[lang] = 0
+                    lang_rules = rules[lang]
+
+                    # 收集 sinks 下的规则
+                    ast_queries = []
+                    regex_patterns = []
+                    for item in lang_rules:
+                        sinks = item.get("sinks", {})
+                        if "ast_patterns" in sinks:
+                            ast_queries.extend(sinks["ast_patterns"])
+                        if "regex" in sinks:
+                            regex_patterns.extend(sinks["regex"])
+
+                    ast_success = False
+                    # 1. 尝试使用 Tree-Sitter 语法解析
+                    if HAS_TREE_SITTER and ast_queries:
+                        try:
+                            ast_candidates = self._scan_via_tree_sitter(content, lang, ast_queries, rel_path, rules[lang])
+                            candidates.extend(ast_candidates)
+                            ast_success = True
+                        except Exception as e:
+                            # 语法解析报错，打印日志并降级到正则
+                            sys.stderr.write(f"[Warning] AST scan failed for {rel_path}: {str(e)}. Falling back to regex...\n")
+
+                    # 2. 降级逻辑：如缺少环境或解析失败，退化为正则检索
+                    if not ast_success and regex_patterns:
+                        line_candidates = self._scan_via_regex(content, regex_patterns, rel_path, lang, rules[lang])
+                        candidates.extend(line_candidates)
+
+                # ---- PROPERTY_CHECK 扫描 (所有文件, 语言无关) ----
+                if content is not None and prop_patterns:
                     prop_candidates = self._scan_property_checks(content, prop_patterns, rel_path, lang)
                     candidates.extend(prop_candidates)
 
@@ -282,33 +285,76 @@ class ASTCoarseScanner:
         return filtered, scan_meta
 
     def _scan_property_checks(self, content, prop_patterns, file_path, lang):
+        """PROPERTY_CHECK 锚点扫描 (REQ-05)。
+
+        property_check_patterns 的 `detect` 字段是**自然语言语义描述**(如
+        "方法体内未出现 owner 比对")，无法作为逐行正则匹配——缺失型判定必须
+        交给 R3 子智能体研判。scanner 在此只负责用各 pattern 的**可机器匹配
+        字段**定位可疑锚点行，并把语义描述带入 `verification_logic`：
+          - anchor_regex: 直接作为正则匹配 (如 exported=true)
+          - anchor_hints.<lang>: 语言相关关键字, 转义后子串匹配
+          - sinks: 函数/前缀名列表, 转义后作为调用点匹配 (如 setuid()
+                   privilege_boundary_skip); 以 `_` 结尾视为前缀 (capng_*)
+          - files: 仅当当前文件名匹配时才生效 (如 AndroidManifest.xml)
+        """
         candidates = []
         lines = content.splitlines()
-        for idx, line in enumerate(lines):
-            for prop in prop_patterns:
-                match_languages = prop.get("languages", [])
-                if match_languages and lang not in match_languages:
+        base_name = os.path.basename(file_path)
+
+        for prop in prop_patterns:
+            pid = prop.get("id", "PROPERTY_CHECK")
+            cwe_id = prop.get("cwe_id", "CWE-862")
+
+            # files 约束: pattern 限定文件名时, 不匹配则整体跳过
+            file_globs = prop.get("files", [])
+            if file_globs:
+                import fnmatch
+                if not any(fnmatch.fnmatch(base_name, g) for g in file_globs):
                     continue
-                patterns = prop.get("detect_regex", [])
-                for pat in patterns:
+
+            # 组装该 pattern 在当前语言下的匹配器: (compiled_regex, raw)
+            matchers = []
+            for rx_pat in prop.get("anchor_regex", []):
+                try:
+                    matchers.append((re.compile(rx_pat), rx_pat))
+                except re.error:
+                    pass
+            hints = prop.get("anchor_hints", {}).get(lang, [])
+            for h in hints:
+                matchers.append((re.compile(re.escape(h)), h))
+            for s in prop.get("sinks", []):
+                # `capng_` 这类前缀 → 匹配 前缀+标识符+( ; 普通名 → 名+(
+                if s.endswith("_"):
+                    matchers.append((re.compile(re.escape(s) + r"\w*\s*\("), s))
+                else:
+                    matchers.append((re.compile(r"\b" + re.escape(s) + r"\s*\("), s))
+
+            if not matchers:
+                continue
+
+            verification_logic = prop.get("verification_logic", prop.get("detect", ""))
+
+            for idx, line in enumerate(lines):
+                for rx, raw in matchers:
                     try:
-                        if re.search(pat, line):
+                        if rx.search(line):
                             sink_content = line.strip()
                             if len(sink_content) > 1000:
                                 sink_content = sink_content[:1000] + "... [TRUNCATED]"
                             candidates.append({
                                 "language": lang,
-                                "cwe_id": prop.get("cwe_id", "CWE-862"),
-                                "category": prop.get("pattern_id", "PROPERTY_CHECK"),
+                                "cwe_id": cwe_id,
+                                "category": pid,
                                 "type": "PROPERTY_CHECK",
                                 "file_path": file_path,
                                 "line_number": idx + 1,
                                 "sink_content": sink_content,
+                                "matched_hint": raw,
                                 "origin": "L0",
                                 "status": "PENDING",
                                 "sources_regex": [],
-                                "reachability_constraints": prop.get("description", ""),
-                                "verification_logic": prop.get("verification_guidance", "")
+                                "reachability_constraints": prop.get("detect", ""),
+                                "verification_logic": verification_logic
                             })
                             break
                     except Exception:
@@ -521,17 +567,19 @@ if __name__ == "__main__":
         wrapper_langs = []
         total_rules_count = 0
         empty_ast_count = 0
+        langs_with_gaps = {}
         if profile_ok:
             try:
                 with open(profile_path, 'r', encoding='utf-8') as pf:
                     pdata = json.load(pf)
                 profile_langs = list(pdata.get("rules", {}).keys())
                 wrapper_langs = list(pdata.get("wrapper_detection", {}).keys())
-                for r_list in pdata.get("rules", {}).values():
+                for lang_name, r_list in pdata.get("rules", {}).items():
                     total_rules_count += len(r_list)
                     for r in r_list:
                         if not r.get("sinks", {}).get("ast_patterns"):
                             empty_ast_count += 1
+                            langs_with_gaps[lang_name] = langs_with_gaps.get(lang_name, 0) + 1
             except Exception:
                 profile_ok = False
 
@@ -547,6 +595,9 @@ if __name__ == "__main__":
             else:
                 grammars_available = list(_TS_LANG_CACHE.keys())
 
+        # REQ-03: AST 覆盖率门槛 (真实值; 覆盖率不足不阻断启动, 但如实告警)
+        AST_COVERAGE_THRESHOLD = 95.0
+        coverage_pct = round((1 - empty_ast_count / total_rules_count) * 100, 1) if total_rules_count else 0
         res = {
             "status": "ok" if HAS_TREE_SITTER else "FAIL: tree-sitter not available",
             "has_tree_sitter": HAS_TREE_SITTER,
@@ -556,13 +607,30 @@ if __name__ == "__main__":
             "configured_languages": profile_langs,
             "wrapper_detection_languages": [l for l in wrapper_langs if not l.startswith("_")],
             "total_rules": total_rules_count,
-            "ast_patterns_coverage_pct": round((1 - empty_ast_count / total_rules_count) * 100, 1) if total_rules_count else 0
+            "ast_patterns_coverage_pct": coverage_pct,
+            "ast_coverage_threshold_pct": AST_COVERAGE_THRESHOLD,
+            "ast_coverage_ok": coverage_pct >= AST_COVERAGE_THRESHOLD,
+            "rules_missing_ast_patterns": empty_ast_count,
+            "ast_gap_by_language": langs_with_gaps
         }
+        if not res["ast_coverage_ok"]:
+            res["warning"] = (
+                f"AST S-expression 覆盖率 {coverage_pct}% 低于阈值 {AST_COVERAGE_THRESHOLD}%; "
+                f"{empty_ast_count} 条规则仅有正则 (命中将降级为 NEEDS_REVIEW): {langs_with_gaps}"
+            )
         print(json.dumps(res, indent=2, ensure_ascii=False))
         sys.exit(0 if (profile_ok and HAS_TREE_SITTER) else 1)
 
     workspace = sys.argv[1] if len(sys.argv) > 1 else "."
-    output_dir = sys.argv[2] if len(sys.argv) > 2 else workspace
+    # REQ-12 目录守卫: 缺省输出到 <workspace>/.audit_results/ (batch_verify.py 硬编码
+    # 从该路径读取)。绝不落盘到项目源码根目录。允许 argv[2] 覆盖, 但会规范到
+    # .audit_results/ 子目录以保持契约一致。
+    if len(sys.argv) > 2:
+        output_dir = sys.argv[2]
+        if os.path.basename(os.path.normpath(output_dir)) != ".audit_results":
+            output_dir = os.path.join(output_dir, ".audit_results")
+    else:
+        output_dir = os.path.join(workspace, ".audit_results")
     script_dir = os.path.dirname(os.path.abspath(__file__))
     profile = os.path.join(script_dir, "../resources/security_profiles.json")
     

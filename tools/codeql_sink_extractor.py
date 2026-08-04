@@ -38,6 +38,7 @@ Output:
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -47,6 +48,12 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Iterable
+
+try:
+    import yaml  # PyYAML — 现代 CodeQL sink 存于 .model.yml 的 sinkModel 段
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
 
 # ==============================================================================
 # 语言配置 — security 目录候选路径 + CWE 关键字映射
@@ -120,9 +127,10 @@ LANG_SECURITY_PATHS: dict[str, list[str]] = {
     "kotlin": [
         "kotlin/ql/lib/codeql/kotlin/security",
     ],
+    # 注意: CodeQL 官方不支持 scala。此前 fallback 到 java 路径会产出"贴 scala
+    # 标签的 java 规则"(伪来源), 已移除。scala 规则须走 manual_additions。
     "scala": [
         "scala/ql/lib/codeql/scala/security",
-        "java/ql/lib/semmle/code/java/security",
     ],
     "shell": [
         "shell/ql/lib/codeql/shell/security",
@@ -217,6 +225,117 @@ SINK_PATTERNS: list[re.Pattern] = [
 
 # 供扫描的子目录,在 security_root 之下递归找 .qll 文件
 SCAN_SUBDIRS = ["", "dataflow"]
+
+# ==============================================================================
+# 现代 CodeQL: Models-as-Data (MaD) sinkModel YAML 通道
+# ==============================================================================
+# 新版 CodeQL 的 sink 定义主体已从 qll 的 hasName("...") 迁移到 .model.yml 的
+# sinkModel 扩展段。行格式因语言而异(长度不定), 但 sink-kind 恒为倒数第 2 列
+# (最后一列是 provenance: manual/generated/df-generated)。函数名位置:
+#   - java/csharp/go/js/py/ruby: [ns, type, subtypes(bool), NAME, sig, ext, ap, kind, prov]
+#     → NAME = bool 列之后第一个非空字符串
+#   - rust/cpp 短格式:            [ns::path, ap, kind, prov]
+#     → NAME = 第一列命名空间路径的最后一段
+#
+# sink-kind → (cwe_id, category)。仅保留本 skill 关心的严重类别; df-generated /
+# ai-generated / test-sink / log-injection / *-manual 等噪音 kind 不在表内即被丢弃。
+SINK_KIND_TO_CWE: dict[str, tuple[str, str]] = {
+    "sql-injection": ("CWE-89", "SqlInjection"),
+    "nosql-injection": ("CWE-89", "NoSqlInjection"),
+    "command-injection": ("CWE-78", "CommandInjection"),
+    "environment-injection": ("CWE-78", "EnvironmentInjection"),
+    "code-injection": ("CWE-94", "CodeInjection"),
+    "jexl-injection": ("CWE-94", "JexlInjection"),
+    "mvel-injection": ("CWE-94", "MvelInjection"),
+    "ognl-injection": ("CWE-94", "OgnlInjection"),
+    "groovy-injection": ("CWE-94", "GroovyInjection"),
+    "template-injection": ("CWE-94", "TemplateInjection"),
+    "js-injection": ("CWE-94", "JsInjection"),
+    "xslt-injection": ("CWE-94", "XsltInjection"),
+    "path-injection": ("CWE-22", "PathTraversal"),
+    "unsafe-deserialization": ("CWE-502", "Deserialization"),
+    "request-forgery": ("CWE-918", "Ssrf"),
+    "ldap-injection": ("CWE-90", "LdapInjection"),
+    "xpath-injection": ("CWE-643", "XPathInjection"),
+    "jndi-injection": ("CWE-74", "JndiInjection"),
+    "url-redirection": ("CWE-601", "OpenRedirect"),
+    "url-forward": ("CWE-601", "UrlForward"),
+    "fragment-injection": ("CWE-601", "FragmentInjection"),
+    "response-splitting": ("CWE-113", "ResponseSplitting"),
+    "html-injection": ("CWE-79", "HtmlInjection"),
+    "alloc-size": ("CWE-789", "UncontrolledAllocationSize"),
+    "alloc-layout": ("CWE-789", "UncontrolledAllocationLayout"),
+    "pointer-access": ("CWE-119", "PointerAccess"),
+    "trust-boundary-violation": ("CWE-501", "TrustBoundaryViolation"),
+    "intent-redirection": ("CWE-926", "IntentRedirection"),
+    "pending-intents": ("CWE-927", "PendingIntent"),
+}
+
+# 提取到的名字里需过滤的脏值: SIMD intrinsics / 编译器内部符号 / 单字母
+_NAME_JUNK_RE = re.compile(r"^(_mm|_rust_|__rust|__rdl_|_load_mask|_load_epi)")
+
+
+def _valid_sink_name(name: str) -> bool:
+    if not name or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        return False
+    if len(name) <= 1:
+        return False
+    if _NAME_JUNK_RE.search(name):
+        return False
+    return True
+
+
+def _mad_name(cells: list, lang: str) -> str | None:
+    """从一行 MaD sinkModel data 提取函数/方法名。"""
+    if lang in ("rust", "cpp"):
+        path = cells[0] if cells and isinstance(cells[0], str) else ""
+        segs = [s for s in re.split(r"::|\.", path) if s]
+        return segs[-1] if segs else None
+    # 结构化语言: bool(subtypes) 列之后第一个非空字符串即方法名
+    for i, c in enumerate(cells):
+        if isinstance(c, bool):
+            for j in range(i + 1, len(cells)):
+                if isinstance(cells[j], str) and cells[j].strip():
+                    return cells[j].strip()
+            break
+    # 兜底: 首个非空字符串
+    return next((c.strip() for c in cells if isinstance(c, str) and c.strip()), None)
+
+
+def extract_from_yaml(lang_root: Path) -> dict[str, list[str]]:
+    """扫描一个语言目录下所有 .model.yml/.yml 的 sinkModel 段。
+
+    返回 {cwe_id: [names...]}。lang_root 传语言顶层目录(如 codeql_root/'java')。
+    """
+    if not HAS_YAML:
+        return {}
+    lang = lang_root.name
+    cwe_to_names: dict[str, list[str]] = {}
+    for f in glob.glob(str(lang_root / "**" / "*.yml"), recursive=True):
+        try:
+            doc = yaml.safe_load(Path(f).read_text(encoding="utf-8", errors="ignore"))
+        except Exception:
+            continue
+        if not isinstance(doc, dict):
+            continue
+        for ext in doc.get("extensions", []) or []:
+            if not isinstance(ext, dict):
+                continue
+            if ext.get("addsTo", {}).get("extensible") != "sinkModel":
+                continue
+            for row in ext.get("data", []) or []:
+                if not isinstance(row, list):
+                    continue
+                kind = next((c for c in row
+                             if isinstance(c, str) and c in SINK_KIND_TO_CWE), None)
+                if not kind:
+                    continue
+                name = _mad_name(row, lang)
+                if not name or not _valid_sink_name(name):
+                    continue
+                cwe_id = SINK_KIND_TO_CWE[kind][0]
+                cwe_to_names.setdefault(cwe_id, []).append(name)
+    return cwe_to_names
 
 
 # ==============================================================================
@@ -321,7 +440,8 @@ def dedupe(seq: Iterable[str]) -> list[str]:
 
 
 def build_rule_entry(
-    cwe_id: str, category: str, names: list[str]
+    cwe_id: str, category: str, names: list[str],
+    sources: tuple[str, ...] = ("codeql-mad-yaml",),
 ) -> dict | None:
     if not names:
         return None
@@ -330,7 +450,10 @@ def build_rule_entry(
         "cwe_id": cwe_id,
         "category": category,
         "type": "TAINT_ANALYSIS",
-        "codeql_model": f"extracted via codeql_sink_extractor.py",
+        # 诚实来源标注: codeql-mad-yaml=从 .model.yml sinkModel 提取;
+        # codeql-qll-hasname=从旧式 qll hasName/getMethod 提取。多源合并时并列。
+        "codeql_model": "+".join(sources),
+        "sink_count": len(names),
         "sinks": {"regex": regex_list, "ast_patterns": []},
         "sources": {"regex": []},
     }
@@ -340,42 +463,99 @@ def build_rule_entry(
 # 主流程
 # ==============================================================================
 
+# cwe_id -> 默认 category (YAML 通道按 CWE 聚合, 需一个稳定的展示名)
+_CWE_DEFAULT_CATEGORY = {
+    "CWE-89": "SqlInjection", "CWE-78": "CommandInjection", "CWE-94": "CodeInjection",
+    "CWE-22": "PathTraversal", "CWE-502": "Deserialization", "CWE-918": "Ssrf",
+    "CWE-90": "LdapInjection", "CWE-643": "XPathInjection", "CWE-74": "JndiInjection",
+    "CWE-601": "OpenRedirect", "CWE-113": "ResponseSplitting", "CWE-79": "Xss",
+    "CWE-789": "UncontrolledAllocation", "CWE-119": "MemoryAccess",
+    "CWE-501": "TrustBoundaryViolation", "CWE-926": "IntentRedirection",
+    "CWE-927": "PendingIntent",
+    # 旧式 qll 通道(match_cwe_for_file)可能产出的 CWE
+    "CWE-416": "UseAfterFree", "CWE-611": "XxeXmlParser", "CWE-787": "BufferWrite",
+    "CWE-125": "BufferOverread", "CWE-190": "IntegerOverflow", "CWE-134": "FormatString",
+    "CWE-476": "NullDereference", "CWE-362": "RaceCondition", "CWE-1321": "PrototypePollution",
+    "CWE-434": "UnrestrictedUpload",
+}
+
+# JVM 引擎别名: 这些语言编译到 JVM, CodeQL 无独立引擎, 但调用的是同一套 Java 库
+# API (Runtime.exec / Statement.executeQuery / ...), 故直接复用 java 的提取结果。
+# 这正是 CodeQL 官方分析 kotlin 的方式 (用 java extractor)。来源诚实标注为
+# codeql-jvm-shared-with-java, 与凭空伪造 org.jetbrains.kotlin.* 有本质区别。
+JVM_ALIAS_OF_JAVA = ("kotlin", "scala")
+
+
 def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
-    """Walk all configured languages and extract rule entries."""
+    """遍历所有语言, 并集两个提取通道:
+      1. YAML sinkModel (现代 CodeQL 主力来源)
+      2. 旧式 qll hasName/getMethod (补充 cpp 等老式定义)
+    """
     all_rules: dict[str, list[dict]] = {}
     for lang in LANG_SECURITY_PATHS:
-        sec_root = find_security_root(codeql_root, lang)
-        if sec_root is None:
-            print(f"[!] {lang} security_root not found in any candidate path",
-                  file=sys.stderr)
+        # ---- JVM 别名: kotlin/scala 复用 java 提取结果 ----
+        if lang in JVM_ALIAS_OF_JAVA:
+            java_rules = all_rules.get("java", [])
+            aliased = []
+            for r in java_rules:
+                r = json.loads(json.dumps(r))  # deep copy
+                srcs = r.get("codeql_model", "")
+                r["codeql_model"] = "codeql-jvm-shared-with-java"
+                r["provenance"] = "codeql-jvm-alias"
+                aliased.append(r)
+            all_rules[lang] = aliased
+            print(f"  [{lang}] 复用 java 的 {len(aliased)} 条规则 "
+                  f"(JVM 共享库, codeql-jvm-shared-with-java)", file=sys.stderr)
             continue
-        print(f"[+] {lang} security_root: {sec_root.relative_to(codeql_root)}",
-              file=sys.stderr)
 
-        # 按 CWE 聚合 names
-        cwe_to_names: dict[str, dict] = {}  # cwe_id -> {"category", "names": [...]}
-        for qll in discover_qll_files(sec_root):
-            cwes = match_cwe_for_file(qll, lang)
-            if not cwes:
-                continue
-            names = dedupe(extract_names_from_qll(qll))
-            if not names:
-                continue
-            for cwe_id, category in cwes:
-                slot = cwe_to_names.setdefault(
-                    cwe_id, {"category": category, "names": []}
-                )
-                slot["names"].extend(names)
+        # cwe_id -> {"names": set, "sources": set}
+        agg: dict[str, dict] = {}
 
-        # 构建 entries — 合并重名并排序
+        # ---- 通道 1: YAML sinkModel (扫语言顶层目录) ----
+        lang_root = codeql_root / lang
+        if HAS_YAML and lang_root.is_dir():
+            for cwe_id, names in extract_from_yaml(lang_root).items():
+                slot = agg.setdefault(cwe_id, {"names": set(), "sources": set()})
+                slot["names"].update(names)
+                slot["sources"].add("codeql-mad-yaml")
+        elif not HAS_YAML:
+            print("[!] PyYAML 未安装, 跳过 YAML sinkModel 通道 (pip install pyyaml)",
+                  file=sys.stderr)
+
+        # ---- 通道 2: 旧式 qll hasName (security_root 之下) ----
+        sec_root = find_security_root(codeql_root, lang)
+        if sec_root is not None:
+            for qll in discover_qll_files(sec_root):
+                cwes = match_cwe_for_file(qll, lang)
+                if not cwes:
+                    continue
+                names = [n for n in dedupe(extract_names_from_qll(qll))
+                         if _valid_sink_name(n)]
+                if not names:
+                    continue
+                for cwe_id, _cat in cwes:
+                    slot = agg.setdefault(cwe_id, {"names": set(), "sources": set()})
+                    slot["names"].update(names)
+                    slot["sources"].add("codeql-qll-hasname")
+
+        if not agg:
+            print(f"[!] {lang}: 两个通道均未提取到 sink "
+                  f"(CodeQL 可能不支持该语言, 或 sink 走 Concepts.qll 抽象类)",
+                  file=sys.stderr)
+            all_rules[lang] = []
+            continue
+
         entries: list[dict] = []
-        for cwe_id, slot in cwe_to_names.items():
-            names = dedupe(slot["names"])
-            entry = build_rule_entry(cwe_id, slot["category"], names)
+        for cwe_id, slot in sorted(agg.items()):
+            names = sorted(slot["names"])
+            category = _CWE_DEFAULT_CATEGORY.get(cwe_id, cwe_id)
+            entry = build_rule_entry(cwe_id, category, names,
+                                     sources=tuple(sorted(slot["sources"])))
             if entry:
                 entries.append(entry)
-                print(f"  [{lang}] {cwe_id:10s} {slot['category']:30s} "
-                      f"{len(names):3d} sinks", file=sys.stderr)
+                print(f"  [{lang}] {cwe_id:10s} {category:26s} "
+                      f"{len(names):4d} sinks  [{'+'.join(sorted(slot['sources']))}]",
+                      file=sys.stderr)
         all_rules[lang] = entries
     return all_rules
 

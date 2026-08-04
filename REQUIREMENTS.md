@@ -57,7 +57,7 @@
 *   **强制约束**：L2 fallback 产物必须经主 Agent 显式复核签名（在 `extended_profile.json` 中写 `reviewed_by: "main-agent"` 字段）后才能进入 R3 验证队列。
 
 ### REQ-03: AST 物理工具强制 R0 self-check 与全语言 AST 对齐
-*   **详细描述**：Skill 启动后第一步（R0 阶段）必须运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `total_rules`, `ast_patterns_coverage_pct`），self-check 校验规则库加载失败（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。全量 15 种预设语言的 191 条静态规则必须达到 100% 的 Tree-Sitter AST S-expression 语法树模式覆盖，消除非必要的正则降级；R1 阶段正则粗筛若缺乏 AST S-expression 校验支撑，必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
+*   **详细描述**：Skill 启动后第一步（R0 阶段）必须运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `total_rules`, `ast_patterns_coverage_pct`, `ast_coverage_threshold_pct`, `ast_coverage_ok`, `ast_gap_by_language`），self-check 校验规则库加载失败或 tree-sitter 不可用（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。全量 15 种预设语言的静态规则须达到 **≥ 95%**（`AST_COVERAGE_THRESHOLD`）的 Tree-Sitter AST S-expression 语法树模式覆盖；self-check 如实输出真实覆盖率与缺口语言清单（`ast_gap_by_language`），低于阈值时置 `ast_coverage_ok=false` 并在 `warning` 字段告警。仅有正则、缺乏 AST S-expression 校验支撑的规则命中时，R1 阶段必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
 *   **详细描述**：初筛与审计阶段必须物理忽略：未采用驼峰命名、缺失文件注释、非安全场景弱随机数、代码风格违规等规范类问题。同时必须自动识别并过滤第三方压缩/混淆库（文件名含 `.min.`、`vendor/`、`node_modules/`、`third_party/`、`libs/` 等典型路径），匹配行长度超过 1000 字符强制截断并标注 `... [TRUNCATED]` 以防空提示词触发模型安全策略或导致子会话挂起。
