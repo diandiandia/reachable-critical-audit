@@ -1,5 +1,5 @@
 {
-  "schema_version": "6.1",
+  "schema_version": "6.2",
   "comment": "从 GitHub CodeQL 官方安全模型中清洗提炼出的 Top 15 语言 Top 10 漏洞 Sink 函数库。涵盖 Python, C++, Java, JavaScript, C#, Go, Rust, PHP, Ruby, Swift, Kotlin, Scala, Shell, Perl, PowerShell。",
   "rules": {
     "java": [
@@ -16,7 +16,9 @@
             "header\\s*\\(",
             "setHeader\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(addCookie|addHeader|setHeader|addDateHeader|setDateHeader)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -241,7 +243,9 @@
             "setSession\\s*\\(",
             "withSession\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(addingToSession|putValue|setAttribute)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -396,7 +400,9 @@
             "sort\\s*\\(",
             "valueOf\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(compile|evaluate|selectNodes|selectSingleNode)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -422,7 +428,9 @@
             "search\\s*\\(",
             "searchForObject\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(lookup|doLookup|list|search)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -591,7 +599,9 @@
             "searchForEntry\\s*\\(",
             "searchForObject\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(search|authenticate)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -753,7 +763,9 @@
             "startService\\s*\\(",
             "startServiceAsUser\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(bindService|startActivity|startService|sendBroadcast)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -783,7 +795,9 @@
             "setResult\\s*\\(",
             "setWindow\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(getActivity|getBroadcast|getService|send)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -857,7 +871,9 @@
             "xy\\s*\\(",
             "xyz\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(eval|runScript|exec)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -943,7 +959,9 @@
             "broadcastIntent",
             "sendBroadcast"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(method_invocation name: (identifier) @m (#match? @m \"^(query|notifyChange|insert|update|delete)$\"))"
+          ]
         },
         "verification_logic": "判定规则: 调用 ContentResolver.query/Binder.transact/Intent extras 时, 若 free-text 参数(如 selection)含字符串拼接 AND 参数化字段(如 selectionArgs)缺省为 null, 判定 REACHABLE_ACROSS_BOUNDARY; 若强制参数化(? 占位 + 绑定), 阻断 UNREACHABLE.",
         "sources": {
@@ -1309,7 +1327,9 @@
             "\\brealloc\\s*\\(.*sizeof",
             "\\bnew\\s+\\w+\\["
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(osi_calloc|osi_malloc|osi_realloc|malloc|calloc|realloc)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -1354,7 +1374,9 @@
             "\\*p\\s*\\+\\+",
             "p\\s*\\+=\\s*\\d"
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(STREAM_TO_UINT8|STREAM_TO_UINT16|STREAM_TO_UINT32|STREAM_TO_ARRAY|BE_STREAM_TO_UINT16)$\"))"
+          ]
         },
         "sources": {
           "regex": [
@@ -1494,7 +1516,9 @@
             "SelectElement\\s*\\(",
             "SelectElements\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#match? @fn \"^(Compile|CompileWithNS|MustCompile)$\")))"
+          ]
         },
         "sources": {
           "regex": []
@@ -1857,6 +1881,9 @@
         "sinks": {
           "regex": [
             "VerifyPeerCertificate.*return.*nil|InsecureSkipVerify\\s*[:=]\\s*true"
+          ],
+          "ast_patterns": [
+            "(keyed_element (literal_element (identifier) @k (#eq? @k \"InsecureSkipVerify\")) (literal_element (true)))"
           ]
         },
         "sources": {
@@ -1872,6 +1899,9 @@
         "sinks": {
           "regex": [
             "Header\\.Set\\(.*,\\s*\\w+.*\\$|Header\\.Add\\(.*,\\s*\\w+.*\\$|WriteHeader\\(\\)"
+          ],
+          "ast_patterns": [
+            "(call_expression function: (selector_expression field: (field_identifier) @fn (#match? @fn \"^(Set|Add|WriteHeader)$\")))"
           ]
         },
         "sources": {
@@ -2555,7 +2585,9 @@
             "SinkMethod\\s*\\(",
             "StringContent\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(invocation_expression (member_access_expression name: (identifier) @fn (#match? @fn \"^(Custom|CustomAsync|Compile|Eval)$\")))"
+          ]
         },
         "sources": {
           "regex": []
@@ -2989,7 +3021,9 @@
             "with_capacity_zeroed\\s*\\(",
             "with_capacity_zeroed_in\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (scoped_identifier name: (identifier) @fn (#match? @fn \"^(with_capacity|reserve|reserve_exact)$\")))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3006,7 +3040,9 @@
             "html\\s*\\(",
             "new\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression function: (field_expression field: (field_identifier) @fn (#match? @fn \"^(html|raw)$\")))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3259,6 +3295,9 @@
         "sinks": {
           "regex": [
             "Rc::from_raw"
+          ],
+          "ast_patterns": [
+            "(call_expression function: (scoped_identifier name: (identifier) @fn (#match? @fn \"^(from_raw)$\")))"
           ]
         },
         "sources": {
@@ -3279,7 +3318,9 @@
           "regex": [
             "extract\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call_expression function: (name) @fn (#match? @fn \"^(unserialize|extract)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3302,7 +3343,9 @@
             "shell_exec\\s*\\(",
             "system\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call_expression function: (name) @fn (#match? @fn \"^(exec|system|shell_exec|passthru|proc_open|popen)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3320,7 +3363,9 @@
             "print\\s*\\(",
             "trigger_error\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call_expression function: (name) @fn (#match? @fn \"^(print|printf|echo|trigger_error)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3363,7 +3408,9 @@
             "update\\s*\\(",
             "where\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call_expression function: (name) @fn (#match? @fn \"^(mysqli_query|query|mysql_query|pg_query)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3387,7 +3434,9 @@
             "wp_safe_remote_post\\s*\\(",
             "wp_safe_remote_request\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call_expression function: (name) @fn (#match? @fn \"^(curl_exec|file_get_contents|fopen|wp_remote_get)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3410,7 +3459,9 @@
             "shell_exec\\s*\\(",
             "system\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call_expression function: (name) @fn (#match? @fn \"^(eval|assert|create_function|call_user_func)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3427,7 +3478,9 @@
           "regex": [
             "assert\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(function_call_expression function: (name) @fn (#match? @fn \"^(assert|eval)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3448,7 +3501,9 @@
             "object_load\\s*\\(",
             "restore\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @m (#match? @m \"^(load|object_load)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3465,7 +3520,9 @@
           "regex": [
             "redirect_to\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @m (#match? @m \"^(redirect_to)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3483,7 +3540,9 @@
             "link_to\\s*\\(",
             "sprintf\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @m (#match? @m \"^(link_to|sprintf|raw|html_safe)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3514,7 +3573,9 @@
             "sprintf\\s*\\(",
             "where\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @m (#match? @m \"^(exec|execute|where|find_by_sql|exec_query)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3531,7 +3592,9 @@
           "regex": [
             "new\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @m (#match? @m \"^(get|post|open)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3551,7 +3614,9 @@
             "instance_eval\\s*\\(",
             "module_eval\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call method: (identifier) @m (#match? @m \"^(eval|instance_eval|class_eval|module_eval)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3571,7 +3636,9 @@
             "sqlite3_exec\\s*\\(",
             "sqlite3_prepare_v2\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (simple_identifier) @fn (#match? @fn \"^(sqlite3_exec|sqlite3_prepare_v2|sqlite3_prepare)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3592,7 +3659,10 @@
             "header\\s*\\(",
             "setHeader\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(addCookie|addHeader|header|setHeader)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(addCookie|addHeader|header|setHeader)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3793,7 +3863,8 @@
             "writer\\s*\\("
           ],
           "ast_patterns": [
-            "(object_creation_expression type: (type_identifier) @type (#match? @type \"^(File|FileInputStream|FileOutputStream)$\"))"
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(ANTLRFileStream|AtomicFileWriter|FileBackedDataSource|FileDataSource|FileHandler|FileImageOutputStream|FileOutputStream|FileOutputStreamFactory|FileSystemResource|FileUrlResource|FileWriter|FileWriterUtil|FileWriterWithEncoding|GenericRecordJsonWriter|GenericRecordXmlWriter|LockableFileWriter|MoveFileExA|OldExcelExtractor|POIFSFileSystem|PathResource|PrintStream|PrintWriter|RandomAccessFile|ReopenableFileOutputStream|RewindableFileOutputStream|SeekableFileInput|StreamResult|StreamTaskListener|SyncableFileOutputStream|URIResolver|UrlResource|VBAMacroReader|XmlFile|XmlStreamWriter|ZipFile|ZipURLInstaller|accept|addPicture|appendBytes|appendText|appendTo|asByteSink|asCharSink|checkout|copy|copyDirectory|copyDirectoryToDirectory|copyFile|copyFileToDirectory|copyFiles|copyFrom|copyInputStreamToFile|copyRecursiveTo|copyRecursively|copyTo|copyToByteArray|copyToDirectory|copyToFile|copyToWithPermission|copyURLToFile|create|createDirectories|createDirectory|createExtractor|createFile|createFileCodeWriter|createLink|createNewFile|createOutputStream|createPutObjectRequest|createRelative|createSymbolicLink|createTempDirectory|createTempFile|delete|deleteDirectory|deleteFile|deleteIfExists|deleteOnExit|deleteQuietly|deleteRecursively|destination|dump|exists|extract|extractAll|filter|filterList|filterSet|forceDelete|forceDeleteOnExit|forceMkdir|forceMkdirParent|fromFile|getCanonicalPath|getChild|getFile|getFileSystem|getFileToWrite|getRandomAccess|getResource|getResourceAsStream|getWriter|install|lines|loadFile|mkdir|mkdirs|move|moveDirectory|moveDirectoryToDirectory|moveFile|moveFileToDirectory|moveToDirectory|newBufferedReader|newBufferedWriter|newByteChannel|newFileSystem|newInputStream|newOutputStream|newWriter|open|openInputStream|openOutputStream|openReader|outputStream|parse|parseSingle|printWriter|read|readAllBytes|readAllLines|readData|readFileToByteArray|readFromOffset|readLines|readString|readToString|readValue|redirectError|redirectOutput|removeDir|rename|renameOrMoveFilesInParallel|renameTo|resolve|result|rewriteHudsonWar|serializeToFile|serveFile|serveLocalizedFile|setDest|setExecutable|setFile|setLastModified|setReadOnly|setReadable|setResource|setTodir|setTofile|setWritable|source|startsWith|staticResource|tar|touch|trustManager|ufferedWriter|uildDir|unzipFrom|updateIntegrityHMAC|valueOf|viewFile|viewFileOld|write|writeByteArrayToFile|writeBytes|writeLines|writeString|writeStringToFile|writeText|writeTo|writeValue|writer)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(ANTLRFileStream|AtomicFileWriter|FileBackedDataSource|FileDataSource|FileHandler|FileImageOutputStream|FileOutputStream|FileOutputStreamFactory|FileSystemResource|FileUrlResource|FileWriter|FileWriterUtil|FileWriterWithEncoding|GenericRecordJsonWriter|GenericRecordXmlWriter|LockableFileWriter|MoveFileExA|OldExcelExtractor|POIFSFileSystem|PathResource|PrintStream|PrintWriter|RandomAccessFile|ReopenableFileOutputStream|RewindableFileOutputStream|SeekableFileInput|StreamResult|StreamTaskListener|SyncableFileOutputStream|URIResolver|UrlResource|VBAMacroReader|XmlFile|XmlStreamWriter|ZipFile|ZipURLInstaller|accept|addPicture|appendBytes|appendText|appendTo|asByteSink|asCharSink|checkout|copy|copyDirectory|copyDirectoryToDirectory|copyFile|copyFileToDirectory|copyFiles|copyFrom|copyInputStreamToFile|copyRecursiveTo|copyRecursively|copyTo|copyToByteArray|copyToDirectory|copyToFile|copyToWithPermission|copyURLToFile|create|createDirectories|createDirectory|createExtractor|createFile|createFileCodeWriter|createLink|createNewFile|createOutputStream|createPutObjectRequest|createRelative|createSymbolicLink|createTempDirectory|createTempFile|delete|deleteDirectory|deleteFile|deleteIfExists|deleteOnExit|deleteQuietly|deleteRecursively|destination|dump|exists|extract|extractAll|filter|filterList|filterSet|forceDelete|forceDeleteOnExit|forceMkdir|forceMkdirParent|fromFile|getCanonicalPath|getChild|getFile|getFileSystem|getFileToWrite|getRandomAccess|getResource|getResourceAsStream|getWriter|install|lines|loadFile|mkdir|mkdirs|move|moveDirectory|moveDirectoryToDirectory|moveFile|moveFileToDirectory|moveToDirectory|newBufferedReader|newBufferedWriter|newByteChannel|newFileSystem|newInputStream|newOutputStream|newWriter|open|openInputStream|openOutputStream|openReader|outputStream|parse|parseSingle|printWriter|read|readAllBytes|readAllLines|readData|readFileToByteArray|readFromOffset|readLines|readString|readToString|readValue|redirectError|redirectOutput|removeDir|rename|renameOrMoveFilesInParallel|renameTo|resolve|result|rewriteHudsonWar|serializeToFile|serveFile|serveLocalizedFile|setDest|setExecutable|setFile|setLastModified|setReadOnly|setReadable|setResource|setTodir|setTofile|setWritable|source|startsWith|staticResource|tar|touch|trustManager|ufferedWriter|uildDir|unzipFrom|updateIntegrityHMAC|valueOf|viewFile|viewFileOld|write|writeByteArrayToFile|writeBytes|writeLines|writeString|writeStringToFile|writeText|writeTo|writeValue|writer)$\"))"
           ]
         },
         "sources": {
@@ -3819,7 +3890,10 @@
             "setSession\\s*\\(",
             "withSession\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(addingToSession|put|putValue|setAttribute|setSession|withSession)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(addingToSession|put|putValue|setAttribute|setSession|withSession)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -3848,7 +3922,8 @@
             "unmarshal\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(readObject|parseObject|readValue)$\"))"
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(deserialize|fromJSON|jsonToJava|load|loadStream|loadStreamOfType|loadType|orrow|read|readObject|readUnshared|unmarshal)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(deserialize|fromJSON|jsonToJava|load|loadStream|loadStreamOfType|loadType|orrow|read|readObject|readUnshared|unmarshal)$\"))"
           ]
         },
         "sources": {
@@ -3889,7 +3964,8 @@
             "temporaryRedirect\\s*\\("
           ],
           "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(sendRedirect|redirect|Response.seeOther)$\"))"
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(ModelAndView|add|attach|forward|getClassName|getPackageName|getRequestDispatcher|open|redirectTo|replace|rowse|seeOther|sendRedirect|sendRedirect2|setClass|setClassName|setComponent|setPackage|setViewName|temporaryRedirect)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(ModelAndView|add|attach|forward|getClassName|getPackageName|getRequestDispatcher|open|redirectTo|replace|rowse|seeOther|sendRedirect|sendRedirect2|setClass|setClassName|setComponent|setPackage|setViewName|temporaryRedirect)$\"))"
           ]
         },
         "sources": {
@@ -3940,7 +4016,8 @@
             "validate\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^newInstance$\") operand: (identifier) @op (#match? @op \"^(DocumentBuilderFactory|SAXParserFactory|XMLInputFactory)$\"))"
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(ACCESS_EXTERNAL_DTD|ACCESS_EXTERNAL_SCHEMA|ACCESS_EXTERNAL_STYLESHEET|FEATURE_SECURE_PROCESSING|IS_SUPPORTING_EXTERNAL_ENTITIES|SUPPORT_DTD|createXMLEventReader|createXMLStreamReader|evaluate|format|getXMLReader|newDocumentBuilder|newSAXParser|newSchema|newTransformer|newTransformerHandler|newXMLFilter|parse|provide|read|setAttribute|setFeature|setProperty|setXMLReader|transform|uild|unmarshal|validate)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(ACCESS_EXTERNAL_DTD|ACCESS_EXTERNAL_SCHEMA|ACCESS_EXTERNAL_STYLESHEET|FEATURE_SECURE_PROCESSING|IS_SUPPORTING_EXTERNAL_ENTITIES|SUPPORT_DTD|createXMLEventReader|createXMLStreamReader|evaluate|format|getXMLReader|newDocumentBuilder|newSAXParser|newSchema|newTransformer|newTransformerHandler|newXMLFilter|parse|provide|read|setAttribute|setFeature|setProperty|setXMLReader|transform|uild|unmarshal|validate)$\"))"
           ]
         },
         "sources": {
@@ -3978,7 +4055,10 @@
             "sort\\s*\\(",
             "valueOf\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(compile|createPattern|createXPath|createXPathFilter|evaluate|evaluateExpression|getValue|getValueList|getValueNode|getValueString|isExist|matches|numberValueOf|selectNodes|selectObject|selectSingleNode|sort|valueOf)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(compile|createPattern|createXPath|createXPathFilter|evaluate|evaluateExpression|getValue|getValueList|getValueNode|getValueString|isExist|matches|numberValueOf|selectNodes|selectObject|selectSingleNode|sort|valueOf)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4005,7 +4085,10 @@
             "search\\s*\\(",
             "searchForObject\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(connect|doLookup|findByDn|list|listBindings|lookup|lookupContext|lookupLink|rename|search|searchForObject)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(connect|doLookup|findByDn|list|listBindings|lookup|lookupContext|lookupLink|rename|search|searchForObject)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4037,8 +4120,8 @@
             "runCommand\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#eq? @name \"exec\") arguments: (argument_list) @args)",
-            "(object_creation_expression type: (type_identifier) @type (#eq? @type \"ProcessBuilder\"))"
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(ProcessBuilder|addArguments|addVariableToEnvironment|cmdAsSingleString|cmds|command|decorateByEnv|directory|envs|exec|execute|launch|launchChannel|parse|runCommand)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(ProcessBuilder|addArguments|addVariableToEnvironment|cmdAsSingleString|cmds|command|decorateByEnv|directory|envs|exec|execute|launch|launchChannel|parse|runCommand)$\"))"
           ]
         },
         "sources": {
@@ -4071,7 +4154,8 @@
             "write\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(write|print|println)$\"))"
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(errorWithMarkup|html|literalHtml|loadData|loadDataWithBaseURL|okWithMarkup|respond|setEntity|updateEntity|warningWithMarkup|write)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(errorWithMarkup|html|literalHtml|loadData|loadDataWithBaseURL|okWithMarkup|respond|setEntity|updateEntity|warningWithMarkup|write)$\"))"
           ]
         },
         "sources": {
@@ -4150,7 +4234,8 @@
             "updateWithOnConflict\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name arguments: (argument_list (binary_expression operator: \"+\") @expr) (#match? @name \"^(query|execute|createQuery|createNativeQuery)$\"))"
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(Annotated|BatchSqlUpdate|DefaultConstraintsRequest|MappingSqlQuery|MappingSqlQueryWithParameters|RawSqlStatement|SqlCall|SqlFunction|SqlQuery|SqlUpdate|UpdatableSqlQuery|addBatch|addOneColumn|analyticsQuery|atchUpdate|compileStatement|console|createDbFromSqlStatements|createMutationQuery|createNativeMutationQuery|createNativeQuery|createQuery|createSQLQuery|createSelectionQuery|delete|execPerConnectionSQL|execSQL|execute|executeLargeUpdate|executeQuery|executeUpdate|getColumns|getPrimaryKeys|insert|lobFileDescriptorForQuery|longForQuery|prepareCall|prepareStatement|query|queryForList|queryForMap|queryForObject|queryForRowSet|queryForStream|queryNumEntries|queryStreaming|queryWithFactory|rawQuery|rawQueryWithFactory|run|selectAll|selectOne|setSql|sinkStuff|stringForQuery|update|updatePartitionColumnStatistics|updateWithOnConflict)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(Annotated|BatchSqlUpdate|DefaultConstraintsRequest|MappingSqlQuery|MappingSqlQueryWithParameters|RawSqlStatement|SqlCall|SqlFunction|SqlQuery|SqlUpdate|UpdatableSqlQuery|addBatch|addOneColumn|analyticsQuery|atchUpdate|compileStatement|console|createDbFromSqlStatements|createMutationQuery|createNativeMutationQuery|createNativeQuery|createQuery|createSQLQuery|createSelectionQuery|delete|execPerConnectionSQL|execSQL|execute|executeLargeUpdate|executeQuery|executeUpdate|getColumns|getPrimaryKeys|insert|lobFileDescriptorForQuery|longForQuery|prepareCall|prepareStatement|query|queryForList|queryForMap|queryForObject|queryForRowSet|queryForStream|queryNumEntries|queryStreaming|queryWithFactory|rawQuery|rawQueryWithFactory|run|selectAll|selectOne|setSql|sinkStuff|stringForQuery|update|updatePartitionColumnStatistics|updateWithOnConflict)$\"))"
           ]
         },
         "sources": {
@@ -4178,7 +4263,10 @@
             "searchForEntry\\s*\\(",
             "searchForObject\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(asyncSearch|authenticate|find|findOne|search|searchForContext|searchForEntry|searchForObject)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(asyncSearch|authenticate|find|findOne|search|searchForContext|searchForEntry|searchForObject)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4301,7 +4389,8 @@
             "url\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(execute|openConnection|getForObject|postForObject|exchange)$\"))"
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(BasicClassicHttpRequest|BasicHttpEntityEnclosingRequest|BasicHttpRequest|BasicRequestProducer|ConfigurableHttpRequest|DatagramPacket|DefaultFullHttpRequest|DefaultHttpRequest|Delete|DriverManagerDataSource|FullDuplexHttpStream|GET|Get|Head|HikariConfig|HttpDelete|HttpGet|HttpHead|HttpOptions|HttpPatch|HttpPost|HttpPut|HttpTrace|HttpUriRequestBase|JellyContext|Options|Patch|Post|Put|Request|RequestEntity|SimpleHttpRequest|Socket|Trace|URIResolver|URLClassLoader|URLDataSource|XmlStreamReader|ZipURLInstaller|aseUrl|connect|copy|copyFile|copyFileToDirectory|copyURLToFile|create|delete|doExecute|download|exchange|execute|get|getConnection|getContent|getForEntity|getForObject|getResource|getSession|getURLClassLoader|head|headForHeaders|installIfNecessaryFrom|load|loadCatalog|loadJSON|loadJSONHTML|method|newBuilder|newCall|newFileSystem|newHttpRequest|newInstance|newRequest|newWebSocket|open|openConnection|openStream|options|optionsForAllow|parse|patch|patchForObject|post|postForEntity|postForLocation|postForObject|put|readBytes|readText|resolve|reverseProxyTo|send|setAddress|setHttpHost|setJdbcUrl|setSocketAddress|setURI|setUri|setUrl|staticResource|target|toByteArray|toString|trace|uri|url)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(BasicClassicHttpRequest|BasicHttpEntityEnclosingRequest|BasicHttpRequest|BasicRequestProducer|ConfigurableHttpRequest|DatagramPacket|DefaultFullHttpRequest|DefaultHttpRequest|Delete|DriverManagerDataSource|FullDuplexHttpStream|GET|Get|Head|HikariConfig|HttpDelete|HttpGet|HttpHead|HttpOptions|HttpPatch|HttpPost|HttpPut|HttpTrace|HttpUriRequestBase|JellyContext|Options|Patch|Post|Put|Request|RequestEntity|SimpleHttpRequest|Socket|Trace|URIResolver|URLClassLoader|URLDataSource|XmlStreamReader|ZipURLInstaller|aseUrl|connect|copy|copyFile|copyFileToDirectory|copyURLToFile|create|delete|doExecute|download|exchange|execute|get|getConnection|getContent|getForEntity|getForObject|getResource|getSession|getURLClassLoader|head|headForHeaders|installIfNecessaryFrom|load|loadCatalog|loadJSON|loadJSONHTML|method|newBuilder|newCall|newFileSystem|newHttpRequest|newInstance|newRequest|newWebSocket|open|openConnection|openStream|options|optionsForAllow|parse|patch|patchForObject|post|postForEntity|postForLocation|postForObject|put|readBytes|readText|resolve|reverseProxyTo|send|setAddress|setHttpHost|setJdbcUrl|setSocketAddress|setURI|setUri|setUrl|staticResource|target|toByteArray|toString|trace|uri|url)$\"))"
           ]
         },
         "sources": {
@@ -4342,7 +4431,10 @@
             "startService\\s*\\(",
             "startServiceAsUser\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(indService|indServiceAsUser|sendBroadcast|sendBroadcastAsUser|sendBroadcastWithMultiplePermissions|sendStickyBroadcast|sendStickyBroadcastAsUser|sendStickyOrderedBroadcast|sendStickyOrderedBroadcastAsUser|startActivities|startActivity|startActivityAsCaller|startActivityAsUser|startActivityForResult|startActivityForResultAsUser|startActivityFromChild|startActivityFromFragment|startActivityIfNeeded|startForegroundService|startService|startServiceAsUser)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(indService|indServiceAsUser|sendBroadcast|sendBroadcastAsUser|sendBroadcastWithMultiplePermissions|sendStickyBroadcast|sendStickyBroadcastAsUser|sendStickyOrderedBroadcast|sendStickyOrderedBroadcastAsUser|startActivities|startActivity|startActivityAsCaller|startActivityAsUser|startActivityForResult|startActivityForResultAsUser|startActivityFromChild|startActivityFromFragment|startActivityIfNeeded|startForegroundService|startService|startServiceAsUser)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4373,7 +4465,10 @@
             "setResult\\s*\\(",
             "setWindow\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(notify|notifyAsPackage|notifyAsUser|onBindSlice|onCreatePermissionRequest|send|set|setAlarmClock|setAndAllowWhileIdle|setExact|setExactAndAllowWhileIdle|setInexactRepeating|setRepeating|setResult|setWindow)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(notify|notifyAsPackage|notifyAsUser|onBindSlice|onCreatePermissionRequest|send|set|setAlarmClock|setAndAllowWhileIdle|setExact|setExactAndAllowWhileIdle|setInexactRepeating|setRepeating|setResult|setWindow)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4448,7 +4543,10 @@
             "xy\\s*\\(",
             "xyz\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (navigation_expression (identifier) @m (#match? @m \"^(Template|applyTemplates|callFunction|callMethod|callTemplate|callable|compile|createTemplate|eval|evalToBoolean|evalToString|evaluate|evaluateJavascript|execute|executeAllExpression|executeExpression|executeSetExpression|findPattern|findString|findText|findValue|get|getDirectValue|getFieldValue|getFormatted|getLiteralTemplate|getProperty|getTemplate|getText|getValue|getValueUsingOgnl|hasKey|isTrue|makeSelectList|me|mergeTemplate|parse|parseClass|prepare|process|processThrottled|putStringResource|putTemplate|render|renderForResult|run|set|setParameter|setProperties|setProperty|setValue|transform|translateVariables|translateVariablesCollection|tryFindValue|tryFindValueWhenExpressionIsNotNull|trySetValue|xy|xyz)$\")))",
+            "(call_expression (identifier) @fn (#match? @fn \"^(Template|applyTemplates|callFunction|callMethod|callTemplate|callable|compile|createTemplate|eval|evalToBoolean|evalToString|evaluate|evaluateJavascript|execute|executeAllExpression|executeExpression|executeSetExpression|findPattern|findString|findText|findValue|get|getDirectValue|getFieldValue|getFormatted|getLiteralTemplate|getProperty|getTemplate|getText|getValue|getValueUsingOgnl|hasKey|isTrue|makeSelectList|me|mergeTemplate|parse|parseClass|prepare|process|processThrottled|putStringResource|putTemplate|render|renderForResult|run|set|setParameter|setProperties|setProperty|setValue|transform|translateVariables|translateVariablesCollection|tryFindValue|tryFindValueWhenExpressionIsNotNull|trySetValue|xy|xyz)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4465,9 +4563,6 @@
             "\\.delete\\(",
             "\\.update\\(",
             "saveAndFlush\\("
-          ],
-          "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(delete|update|save|saveAndFlush|remove)$\"))"
           ]
         },
         "verification_logic": "验证当前控制器方法体中是否包含用户属主拦截比对（如 sessionUserId == dataOwnerId）。若无任何鉴权比对代码，判定为越权漏洞。",
@@ -4490,9 +4585,6 @@
             "\\.transferTo\\(",
             "Files\\.write\\(",
             "IOUtils\\.copy\\("
-          ],
-          "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(transferTo|write|copy)$\"))"
           ]
         },
         "sources": {
@@ -4512,9 +4604,6 @@
           "regex": [
             "\\.updatePassword\\(",
             "\\.deleteUser\\("
-          ],
-          "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(updatePassword|deleteUser|changeEmail)$\" ))"
           ]
         },
         "verification_logic": "检查该写操作控制器或对应配置类是否禁用了 CSRF 防御令牌校验（如 http.csrf().disable()）。",
@@ -4537,8 +4626,7 @@
             "Binder\\.transact\\s*\\(",
             "broadcastIntent",
             "sendBroadcast"
-          ],
-          "ast_patterns": []
+          ]
         },
         "verification_logic": "判定规则: 调用 ContentResolver.query/Binder.transact/Intent extras 时, 若 free-text 参数(如 selection)含字符串拼接 AND 参数化字段(如 selectionArgs)缺省为 null, 判定 REACHABLE_ACROSS_BOUNDARY; 若强制参数化(? 占位 + 绑定), 阻断 UNREACHABLE.",
         "sources": {
@@ -4567,7 +4655,10 @@
             "header\\s*\\(",
             "setHeader\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(addCookie|addHeader|header|setHeader)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(addCookie|addHeader|header|setHeader)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4768,7 +4859,8 @@
             "writer\\s*\\("
           ],
           "ast_patterns": [
-            "(object_creation_expression type: (type_identifier) @type (#match? @type \"^(File|FileInputStream|FileOutputStream)$\"))"
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(ANTLRFileStream|AtomicFileWriter|FileBackedDataSource|FileDataSource|FileHandler|FileImageOutputStream|FileOutputStream|FileOutputStreamFactory|FileSystemResource|FileUrlResource|FileWriter|FileWriterUtil|FileWriterWithEncoding|GenericRecordJsonWriter|GenericRecordXmlWriter|LockableFileWriter|MoveFileExA|OldExcelExtractor|POIFSFileSystem|PathResource|PrintStream|PrintWriter|RandomAccessFile|ReopenableFileOutputStream|RewindableFileOutputStream|SeekableFileInput|StreamResult|StreamTaskListener|SyncableFileOutputStream|URIResolver|UrlResource|VBAMacroReader|XmlFile|XmlStreamWriter|ZipFile|ZipURLInstaller|accept|addPicture|appendBytes|appendText|appendTo|asByteSink|asCharSink|checkout|copy|copyDirectory|copyDirectoryToDirectory|copyFile|copyFileToDirectory|copyFiles|copyFrom|copyInputStreamToFile|copyRecursiveTo|copyRecursively|copyTo|copyToByteArray|copyToDirectory|copyToFile|copyToWithPermission|copyURLToFile|create|createDirectories|createDirectory|createExtractor|createFile|createFileCodeWriter|createLink|createNewFile|createOutputStream|createPutObjectRequest|createRelative|createSymbolicLink|createTempDirectory|createTempFile|delete|deleteDirectory|deleteFile|deleteIfExists|deleteOnExit|deleteQuietly|deleteRecursively|destination|dump|exists|extract|extractAll|filter|filterList|filterSet|forceDelete|forceDeleteOnExit|forceMkdir|forceMkdirParent|fromFile|getCanonicalPath|getChild|getFile|getFileSystem|getFileToWrite|getRandomAccess|getResource|getResourceAsStream|getWriter|install|lines|loadFile|mkdir|mkdirs|move|moveDirectory|moveDirectoryToDirectory|moveFile|moveFileToDirectory|moveToDirectory|newBufferedReader|newBufferedWriter|newByteChannel|newFileSystem|newInputStream|newOutputStream|newWriter|open|openInputStream|openOutputStream|openReader|outputStream|parse|parseSingle|printWriter|read|readAllBytes|readAllLines|readData|readFileToByteArray|readFromOffset|readLines|readString|readToString|readValue|redirectError|redirectOutput|removeDir|rename|renameOrMoveFilesInParallel|renameTo|resolve|result|rewriteHudsonWar|serializeToFile|serveFile|serveLocalizedFile|setDest|setExecutable|setFile|setLastModified|setReadOnly|setReadable|setResource|setTodir|setTofile|setWritable|source|startsWith|staticResource|tar|touch|trustManager|ufferedWriter|uildDir|unzipFrom|updateIntegrityHMAC|valueOf|viewFile|viewFileOld|write|writeByteArrayToFile|writeBytes|writeLines|writeString|writeStringToFile|writeText|writeTo|writeValue|writer)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(ANTLRFileStream|AtomicFileWriter|FileBackedDataSource|FileDataSource|FileHandler|FileImageOutputStream|FileOutputStream|FileOutputStreamFactory|FileSystemResource|FileUrlResource|FileWriter|FileWriterUtil|FileWriterWithEncoding|GenericRecordJsonWriter|GenericRecordXmlWriter|LockableFileWriter|MoveFileExA|OldExcelExtractor|POIFSFileSystem|PathResource|PrintStream|PrintWriter|RandomAccessFile|ReopenableFileOutputStream|RewindableFileOutputStream|SeekableFileInput|StreamResult|StreamTaskListener|SyncableFileOutputStream|URIResolver|UrlResource|VBAMacroReader|XmlFile|XmlStreamWriter|ZipFile|ZipURLInstaller|accept|addPicture|appendBytes|appendText|appendTo|asByteSink|asCharSink|checkout|copy|copyDirectory|copyDirectoryToDirectory|copyFile|copyFileToDirectory|copyFiles|copyFrom|copyInputStreamToFile|copyRecursiveTo|copyRecursively|copyTo|copyToByteArray|copyToDirectory|copyToFile|copyToWithPermission|copyURLToFile|create|createDirectories|createDirectory|createExtractor|createFile|createFileCodeWriter|createLink|createNewFile|createOutputStream|createPutObjectRequest|createRelative|createSymbolicLink|createTempDirectory|createTempFile|delete|deleteDirectory|deleteFile|deleteIfExists|deleteOnExit|deleteQuietly|deleteRecursively|destination|dump|exists|extract|extractAll|filter|filterList|filterSet|forceDelete|forceDeleteOnExit|forceMkdir|forceMkdirParent|fromFile|getCanonicalPath|getChild|getFile|getFileSystem|getFileToWrite|getRandomAccess|getResource|getResourceAsStream|getWriter|install|lines|loadFile|mkdir|mkdirs|move|moveDirectory|moveDirectoryToDirectory|moveFile|moveFileToDirectory|moveToDirectory|newBufferedReader|newBufferedWriter|newByteChannel|newFileSystem|newInputStream|newOutputStream|newWriter|open|openInputStream|openOutputStream|openReader|outputStream|parse|parseSingle|printWriter|read|readAllBytes|readAllLines|readData|readFileToByteArray|readFromOffset|readLines|readString|readToString|readValue|redirectError|redirectOutput|removeDir|rename|renameOrMoveFilesInParallel|renameTo|resolve|result|rewriteHudsonWar|serializeToFile|serveFile|serveLocalizedFile|setDest|setExecutable|setFile|setLastModified|setReadOnly|setReadable|setResource|setTodir|setTofile|setWritable|source|startsWith|staticResource|tar|touch|trustManager|ufferedWriter|uildDir|unzipFrom|updateIntegrityHMAC|valueOf|viewFile|viewFileOld|write|writeByteArrayToFile|writeBytes|writeLines|writeString|writeStringToFile|writeText|writeTo|writeValue|writer)$\"))"
           ]
         },
         "sources": {
@@ -4794,7 +4886,10 @@
             "setSession\\s*\\(",
             "withSession\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(addingToSession|put|putValue|setAttribute|setSession|withSession)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(addingToSession|put|putValue|setAttribute|setSession|withSession)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4823,7 +4918,8 @@
             "unmarshal\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(readObject|parseObject|readValue)$\"))"
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(deserialize|fromJSON|jsonToJava|load|loadStream|loadStreamOfType|loadType|orrow|read|readObject|readUnshared|unmarshal)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(deserialize|fromJSON|jsonToJava|load|loadStream|loadStreamOfType|loadType|orrow|read|readObject|readUnshared|unmarshal)$\"))"
           ]
         },
         "sources": {
@@ -4864,7 +4960,8 @@
             "temporaryRedirect\\s*\\("
           ],
           "ast_patterns": [
-            "(call_expression function: (identifier) @func (#match? @func \"^(sendRedirect|redirect|Response.seeOther)$\"))"
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(ModelAndView|add|attach|forward|getClassName|getPackageName|getRequestDispatcher|open|redirectTo|replace|rowse|seeOther|sendRedirect|sendRedirect2|setClass|setClassName|setComponent|setPackage|setViewName|temporaryRedirect)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(ModelAndView|add|attach|forward|getClassName|getPackageName|getRequestDispatcher|open|redirectTo|replace|rowse|seeOther|sendRedirect|sendRedirect2|setClass|setClassName|setComponent|setPackage|setViewName|temporaryRedirect)$\"))"
           ]
         },
         "sources": {
@@ -4915,7 +5012,8 @@
             "validate\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^newInstance$\") operand: (identifier) @op (#match? @op \"^(DocumentBuilderFactory|SAXParserFactory|XMLInputFactory)$\"))"
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(ACCESS_EXTERNAL_DTD|ACCESS_EXTERNAL_SCHEMA|ACCESS_EXTERNAL_STYLESHEET|FEATURE_SECURE_PROCESSING|IS_SUPPORTING_EXTERNAL_ENTITIES|SUPPORT_DTD|createXMLEventReader|createXMLStreamReader|evaluate|format|getXMLReader|newDocumentBuilder|newSAXParser|newSchema|newTransformer|newTransformerHandler|newXMLFilter|parse|provide|read|setAttribute|setFeature|setProperty|setXMLReader|transform|uild|unmarshal|validate)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(ACCESS_EXTERNAL_DTD|ACCESS_EXTERNAL_SCHEMA|ACCESS_EXTERNAL_STYLESHEET|FEATURE_SECURE_PROCESSING|IS_SUPPORTING_EXTERNAL_ENTITIES|SUPPORT_DTD|createXMLEventReader|createXMLStreamReader|evaluate|format|getXMLReader|newDocumentBuilder|newSAXParser|newSchema|newTransformer|newTransformerHandler|newXMLFilter|parse|provide|read|setAttribute|setFeature|setProperty|setXMLReader|transform|uild|unmarshal|validate)$\"))"
           ]
         },
         "sources": {
@@ -4953,7 +5051,10 @@
             "sort\\s*\\(",
             "valueOf\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(compile|createPattern|createXPath|createXPathFilter|evaluate|evaluateExpression|getValue|getValueList|getValueNode|getValueString|isExist|matches|numberValueOf|selectNodes|selectObject|selectSingleNode|sort|valueOf)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(compile|createPattern|createXPath|createXPathFilter|evaluate|evaluateExpression|getValue|getValueList|getValueNode|getValueString|isExist|matches|numberValueOf|selectNodes|selectObject|selectSingleNode|sort|valueOf)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -4980,7 +5081,10 @@
             "search\\s*\\(",
             "searchForObject\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(connect|doLookup|findByDn|list|listBindings|lookup|lookupContext|lookupLink|rename|search|searchForObject)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(connect|doLookup|findByDn|list|listBindings|lookup|lookupContext|lookupLink|rename|search|searchForObject)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -5012,8 +5116,8 @@
             "runCommand\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#eq? @name \"exec\") arguments: (argument_list) @args)",
-            "(object_creation_expression type: (type_identifier) @type (#eq? @type \"ProcessBuilder\"))"
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(ProcessBuilder|addArguments|addVariableToEnvironment|cmdAsSingleString|cmds|command|decorateByEnv|directory|envs|exec|execute|launch|launchChannel|parse|runCommand)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(ProcessBuilder|addArguments|addVariableToEnvironment|cmdAsSingleString|cmds|command|decorateByEnv|directory|envs|exec|execute|launch|launchChannel|parse|runCommand)$\"))"
           ]
         },
         "sources": {
@@ -5046,7 +5150,8 @@
             "write\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(write|print|println)$\"))"
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(errorWithMarkup|html|literalHtml|loadData|loadDataWithBaseURL|okWithMarkup|respond|setEntity|updateEntity|warningWithMarkup|write)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(errorWithMarkup|html|literalHtml|loadData|loadDataWithBaseURL|okWithMarkup|respond|setEntity|updateEntity|warningWithMarkup|write)$\"))"
           ]
         },
         "sources": {
@@ -5125,7 +5230,8 @@
             "updateWithOnConflict\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name arguments: (argument_list (binary_expression operator: \"+\") @expr) (#match? @name \"^(query|execute|createQuery|createNativeQuery)$\"))"
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(Annotated|BatchSqlUpdate|DefaultConstraintsRequest|MappingSqlQuery|MappingSqlQueryWithParameters|RawSqlStatement|SqlCall|SqlFunction|SqlQuery|SqlUpdate|UpdatableSqlQuery|addBatch|addOneColumn|analyticsQuery|atchUpdate|compileStatement|console|createDbFromSqlStatements|createMutationQuery|createNativeMutationQuery|createNativeQuery|createQuery|createSQLQuery|createSelectionQuery|delete|execPerConnectionSQL|execSQL|execute|executeLargeUpdate|executeQuery|executeUpdate|getColumns|getPrimaryKeys|insert|lobFileDescriptorForQuery|longForQuery|prepareCall|prepareStatement|query|queryForList|queryForMap|queryForObject|queryForRowSet|queryForStream|queryNumEntries|queryStreaming|queryWithFactory|rawQuery|rawQueryWithFactory|run|selectAll|selectOne|setSql|sinkStuff|stringForQuery|update|updatePartitionColumnStatistics|updateWithOnConflict)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(Annotated|BatchSqlUpdate|DefaultConstraintsRequest|MappingSqlQuery|MappingSqlQueryWithParameters|RawSqlStatement|SqlCall|SqlFunction|SqlQuery|SqlUpdate|UpdatableSqlQuery|addBatch|addOneColumn|analyticsQuery|atchUpdate|compileStatement|console|createDbFromSqlStatements|createMutationQuery|createNativeMutationQuery|createNativeQuery|createQuery|createSQLQuery|createSelectionQuery|delete|execPerConnectionSQL|execSQL|execute|executeLargeUpdate|executeQuery|executeUpdate|getColumns|getPrimaryKeys|insert|lobFileDescriptorForQuery|longForQuery|prepareCall|prepareStatement|query|queryForList|queryForMap|queryForObject|queryForRowSet|queryForStream|queryNumEntries|queryStreaming|queryWithFactory|rawQuery|rawQueryWithFactory|run|selectAll|selectOne|setSql|sinkStuff|stringForQuery|update|updatePartitionColumnStatistics|updateWithOnConflict)$\"))"
           ]
         },
         "sources": {
@@ -5153,7 +5259,10 @@
             "searchForEntry\\s*\\(",
             "searchForObject\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(asyncSearch|authenticate|find|findOne|search|searchForContext|searchForEntry|searchForObject)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(asyncSearch|authenticate|find|findOne|search|searchForContext|searchForEntry|searchForObject)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -5276,7 +5385,8 @@
             "url\\s*\\("
           ],
           "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(execute|openConnection|getForObject|postForObject|exchange)$\"))"
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(BasicClassicHttpRequest|BasicHttpEntityEnclosingRequest|BasicHttpRequest|BasicRequestProducer|ConfigurableHttpRequest|DatagramPacket|DefaultFullHttpRequest|DefaultHttpRequest|Delete|DriverManagerDataSource|FullDuplexHttpStream|GET|Get|Head|HikariConfig|HttpDelete|HttpGet|HttpHead|HttpOptions|HttpPatch|HttpPost|HttpPut|HttpTrace|HttpUriRequestBase|JellyContext|Options|Patch|Post|Put|Request|RequestEntity|SimpleHttpRequest|Socket|Trace|URIResolver|URLClassLoader|URLDataSource|XmlStreamReader|ZipURLInstaller|aseUrl|connect|copy|copyFile|copyFileToDirectory|copyURLToFile|create|delete|doExecute|download|exchange|execute|get|getConnection|getContent|getForEntity|getForObject|getResource|getSession|getURLClassLoader|head|headForHeaders|installIfNecessaryFrom|load|loadCatalog|loadJSON|loadJSONHTML|method|newBuilder|newCall|newFileSystem|newHttpRequest|newInstance|newRequest|newWebSocket|open|openConnection|openStream|options|optionsForAllow|parse|patch|patchForObject|post|postForEntity|postForLocation|postForObject|put|readBytes|readText|resolve|reverseProxyTo|send|setAddress|setHttpHost|setJdbcUrl|setSocketAddress|setURI|setUri|setUrl|staticResource|target|toByteArray|toString|trace|uri|url)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(BasicClassicHttpRequest|BasicHttpEntityEnclosingRequest|BasicHttpRequest|BasicRequestProducer|ConfigurableHttpRequest|DatagramPacket|DefaultFullHttpRequest|DefaultHttpRequest|Delete|DriverManagerDataSource|FullDuplexHttpStream|GET|Get|Head|HikariConfig|HttpDelete|HttpGet|HttpHead|HttpOptions|HttpPatch|HttpPost|HttpPut|HttpTrace|HttpUriRequestBase|JellyContext|Options|Patch|Post|Put|Request|RequestEntity|SimpleHttpRequest|Socket|Trace|URIResolver|URLClassLoader|URLDataSource|XmlStreamReader|ZipURLInstaller|aseUrl|connect|copy|copyFile|copyFileToDirectory|copyURLToFile|create|delete|doExecute|download|exchange|execute|get|getConnection|getContent|getForEntity|getForObject|getResource|getSession|getURLClassLoader|head|headForHeaders|installIfNecessaryFrom|load|loadCatalog|loadJSON|loadJSONHTML|method|newBuilder|newCall|newFileSystem|newHttpRequest|newInstance|newRequest|newWebSocket|open|openConnection|openStream|options|optionsForAllow|parse|patch|patchForObject|post|postForEntity|postForLocation|postForObject|put|readBytes|readText|resolve|reverseProxyTo|send|setAddress|setHttpHost|setJdbcUrl|setSocketAddress|setURI|setUri|setUrl|staticResource|target|toByteArray|toString|trace|uri|url)$\"))"
           ]
         },
         "sources": {
@@ -5317,7 +5427,10 @@
             "startService\\s*\\(",
             "startServiceAsUser\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(indService|indServiceAsUser|sendBroadcast|sendBroadcastAsUser|sendBroadcastWithMultiplePermissions|sendStickyBroadcast|sendStickyBroadcastAsUser|sendStickyOrderedBroadcast|sendStickyOrderedBroadcastAsUser|startActivities|startActivity|startActivityAsCaller|startActivityAsUser|startActivityForResult|startActivityForResultAsUser|startActivityFromChild|startActivityFromFragment|startActivityIfNeeded|startForegroundService|startService|startServiceAsUser)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(indService|indServiceAsUser|sendBroadcast|sendBroadcastAsUser|sendBroadcastWithMultiplePermissions|sendStickyBroadcast|sendStickyBroadcastAsUser|sendStickyOrderedBroadcast|sendStickyOrderedBroadcastAsUser|startActivities|startActivity|startActivityAsCaller|startActivityAsUser|startActivityForResult|startActivityForResultAsUser|startActivityFromChild|startActivityFromFragment|startActivityIfNeeded|startForegroundService|startService|startServiceAsUser)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -5348,7 +5461,10 @@
             "setResult\\s*\\(",
             "setWindow\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(notify|notifyAsPackage|notifyAsUser|onBindSlice|onCreatePermissionRequest|send|set|setAlarmClock|setAndAllowWhileIdle|setExact|setExactAndAllowWhileIdle|setInexactRepeating|setRepeating|setResult|setWindow)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(notify|notifyAsPackage|notifyAsUser|onBindSlice|onCreatePermissionRequest|send|set|setAlarmClock|setAndAllowWhileIdle|setExact|setExactAndAllowWhileIdle|setInexactRepeating|setRepeating|setResult|setWindow)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -5423,7 +5539,10 @@
             "xy\\s*\\(",
             "xyz\\s*\\("
           ],
-          "ast_patterns": []
+          "ast_patterns": [
+            "(call_expression (field_expression field: (identifier) @m (#match? @m \"^(Template|applyTemplates|callFunction|callMethod|callTemplate|callable|compile|createTemplate|eval|evalToBoolean|evalToString|evaluate|evaluateJavascript|execute|executeAllExpression|executeExpression|executeSetExpression|findPattern|findString|findText|findValue|get|getDirectValue|getFieldValue|getFormatted|getLiteralTemplate|getProperty|getTemplate|getText|getValue|getValueUsingOgnl|hasKey|isTrue|makeSelectList|me|mergeTemplate|parse|parseClass|prepare|process|processThrottled|putStringResource|putTemplate|render|renderForResult|run|set|setParameter|setProperties|setProperty|setValue|transform|translateVariables|translateVariablesCollection|tryFindValue|tryFindValueWhenExpressionIsNotNull|trySetValue|xy|xyz)$\")))",
+            "(call_expression function: (identifier) @fn (#match? @fn \"^(Template|applyTemplates|callFunction|callMethod|callTemplate|callable|compile|createTemplate|eval|evalToBoolean|evalToString|evaluate|evaluateJavascript|execute|executeAllExpression|executeExpression|executeSetExpression|findPattern|findString|findText|findValue|get|getDirectValue|getFieldValue|getFormatted|getLiteralTemplate|getProperty|getTemplate|getText|getValue|getValueUsingOgnl|hasKey|isTrue|makeSelectList|me|mergeTemplate|parse|parseClass|prepare|process|processThrottled|putStringResource|putTemplate|render|renderForResult|run|set|setParameter|setProperties|setProperty|setValue|transform|translateVariables|translateVariablesCollection|tryFindValue|tryFindValueWhenExpressionIsNotNull|trySetValue|xy|xyz)$\"))"
+          ]
         },
         "sources": {
           "regex": []
@@ -5440,9 +5559,6 @@
             "\\.delete\\(",
             "\\.update\\(",
             "saveAndFlush\\("
-          ],
-          "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(delete|update|save|saveAndFlush|remove)$\"))"
           ]
         },
         "verification_logic": "验证当前控制器方法体中是否包含用户属主拦截比对（如 sessionUserId == dataOwnerId）。若无任何鉴权比对代码，判定为越权漏洞。",
@@ -5465,9 +5581,6 @@
             "\\.transferTo\\(",
             "Files\\.write\\(",
             "IOUtils\\.copy\\("
-          ],
-          "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(transferTo|write|copy)$\"))"
           ]
         },
         "sources": {
@@ -5487,9 +5600,6 @@
           "regex": [
             "\\.updatePassword\\(",
             "\\.deleteUser\\("
-          ],
-          "ast_patterns": [
-            "(method_invocation name: (identifier) @name (#match? @name \"^(updatePassword|deleteUser|changeEmail)$\" ))"
           ]
         },
         "verification_logic": "检查该写操作控制器或对应配置类是否禁用了 CSRF 防御令牌校验（如 http.csrf().disable()）。",
@@ -5512,8 +5622,7 @@
             "Binder\\.transact\\s*\\(",
             "broadcastIntent",
             "sendBroadcast"
-          ],
-          "ast_patterns": []
+          ]
         },
         "verification_logic": "判定规则: 调用 ContentResolver.query/Binder.transact/Intent extras 时, 若 free-text 参数(如 selection)含字符串拼接 AND 参数化字段(如 selectionArgs)缺省为 null, 判定 REACHABLE_ACROSS_BOUNDARY; 若强制参数化(? 占位 + 绑定), 阻断 UNREACHABLE.",
         "sources": {
