@@ -127,14 +127,14 @@ python3 tools/codeql_sink_extractor.py --dry-run
 
 ---
 
-## 🧪 已审计项目
+## 🧪 设计动机
 
-v2 修订动机来自以下两次真实审计暴露的盲区:
+v2 的核心改动（R1.5 框架感知扩展、`manual_additions` 手工补丁、跨边界 sink 终结、固化 6 类业务假说）针对的是 pre-v2 在 framework 类项目上暴露的两类系统性盲区：
 
-| 项目 | 版本 | pre-v2 结果 | 漏报问题 | v2 修复 |
-|---|---|---|---|---|
-| [tirreno](https://github.com/tirrenotechnologies/tirreno) | v0.10.0 | 4 REACHABLE (install 重装链) | install 链发现完整,无漏报 | 基线项目 |
-| [Android Bluetooth (Fluoride)](https://github.com/AospPackages/Bluetooth) | main | 7 REACHABLE | **漏报 MAP SQL 注入 + AVRCP heap DoS** | R1.5 + manual_additions + 跨边界 sink 终结 + 固化假说 |
+- **项目自有 wrapper 不可见**：规则库只列原生 sink（如 `query`/`strcpy`），漏掉项目自定义封装（如 Android Bluetooth 的 `osi_*alloc` allocator、`STREAM_TO_UINT*` 解析宏）。→ R1.5 wrapper_detection 修复。
+- **跨进程 sink 不可见**：要求调用链在本仓库内闭环，导致恶意输入透传给外部 ContentProvider / DSO 后无法判定。→ REQ-19 跨边界终结修复。
+
+> 上述改动的有效性以设计推演与单元验证为准。仓库未随附具体项目的审计报告产物；若需复现审计结论，请对目标项目实际运行本 Skill 并核对 `.audit_results/` 下的落盘结果。
 
 ---
 

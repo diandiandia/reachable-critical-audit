@@ -184,23 +184,27 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 
 由 `tools/codeql_sink_extractor.py` 完成，可重现：
 
-| 语言 | CodeQL 路径 | 关键 qll 文件 / 提取路径 | 提取模式与 AST 支撑 |
-| :--- | :--- | :--- | :--- |
-| C++ | `cpp/ql/lib/semmle/code/cpp/security/` | `BufferAccess.qll` / `BufferWrite.qll` / `CommandExecution.qll` / `Overflow.qll` / `FileWrite.qll` | `hasGlobalName("...")` + 100% Tree-Sitter AST S-expr |
-| Java | `java/ql/lib/semmle/code/java/security/` | `SQL.qll` / `Command.qll` / `Xss.qll` / `XML.qll` / `Dom/*.qll` | `getMethod("...")` + 100% Tree-Sitter AST S-expr |
-| Python | `python/ql/lib/semmle/code/python/security/` | `SqlEvaluation.qll` / `Exec.qll` 等 | `getFunc("...")` + 100% Tree-Sitter AST S-expr |
-| JS/TS | `javascript/ql/lib/semmle/code/javascript/security/` | `*Sink.qll` 系列 | `getCalleeName("...")` + 100% Tree-Sitter AST S-expr |
-| Go | `go/ql/lib/semmle/code/go/security/` | `*Sink.qll` 系列 | `hasMemberName("...")` + 100% Tree-Sitter AST S-expr |
-| C# | `csharp/ql/lib/semmle/code/csharp/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
-| Rust | `rust/ql/lib/codeql/rust/security/` | `*Sink.qll` 系列 | `unsafe_block` / `hasName` + 100% AST S-expr |
-| PHP | `php/ql/lib/semmle/code/php/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
-| Ruby | `ruby/ql/lib/codeql/ruby/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
-| Swift | `swift/ql/lib/codeql/swift/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
-| Kotlin | `kotlin/ql/lib/codeql/kotlin/security/` | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
-| Scala | `scala/ql/lib/codeql/scala/security/` (及 Java 通用) | `*Sink.qll` 系列 | `hasName("...")` + 100% Tree-Sitter AST S-expr |
-| Shell | `shell/ql/lib/codeql/shell/security/` | Command/eval 提取模式 | `command_name` + 100% Tree-Sitter AST S-expr |
-| Perl | `perl/ql/lib/codeql/perl/security/` | Sys/eval 提取模式 | `function_call` + 100% Tree-Sitter AST S-expr |
-| PowerShell | `powershell/ql/lib/codeql/powershell/security/` | Invoke/cmd 提取模式 | `command_elements` + 100% Tree-Sitter AST S-expr |
+下表「AST 支撑」列的覆盖率为 `ast_scanner.py --self-check` 实测值：分子为该语言 `rules.<lang>` 段中带 `ast_patterns` 字段的规则数，分母为该语言规则总数。**带 grammar 包的 12 种语言的每一条 S-expression 均已通过 tree-sitter 编译 + 正样例命中验证**（验证方法见 §4.2.1）。全量 15 种语言的规则级 AST 字段覆盖率为 **100%**（`ast_coverage_ok=true`）。
+
+| 语言 | CodeQL 路径 | 关键 qll 文件 / 提取路径 | 提取模式 | AST 支撑（实测） |
+| :--- | :--- | :--- | :--- | :--- |
+| C++ | `cpp/ql/lib/semmle/code/cpp/security/` | `BufferAccess.qll` / `BufferWrite.qll` / `CommandExecution.qll` / `Overflow.qll` / `FileWrite.qll` | `hasGlobalName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Java | `java/ql/lib/semmle/code/java/security/` | `SQL.qll` / `Command.qll` / `Xss.qll` / `XML.qll` / `Dom/*.qll` | `getMethod("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Python | `python/ql/lib/semmle/code/python/security/` | `SqlEvaluation.qll` / `Exec.qll` 等 | `getFunc("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| JS/TS | `javascript/ql/lib/semmle/code/javascript/security/` | `*Sink.qll` 系列 | `getCalleeName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Go | `go/ql/lib/semmle/code/go/security/` | `*Sink.qll` 系列 | `hasMemberName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| C# | `csharp/ql/lib/semmle/code/csharp/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Rust | `rust/ql/lib/codeql/rust/security/` | `*Sink.qll` 系列 | `unsafe_block` / `hasName` | Tree-Sitter S-expr（已验证编译+命中） |
+| PHP | `php/ql/lib/semmle/code/php/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Ruby | `ruby/ql/lib/codeql/ruby/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Swift | `swift/ql/lib/codeql/swift/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Kotlin | `kotlin/ql/lib/codeql/kotlin/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中；节点类型 `call_expression`/`navigation_expression`，非 Java 节点） |
+| Scala | `scala/ql/lib/codeql/scala/security/` (及 Java 通用) | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中；节点类型 `call_expression`/`field_expression`，非 Java 节点） |
+| Shell | `shell/ql/lib/codeql/shell/security/` | Command/eval 提取模式 | `command_name` | 规则段暂空（无预置 sink 规则）；tree-sitter-bash 未随环境安装 → 运行时按 regex-only 降级 |
+| Perl | `perl/ql/lib/codeql/perl/security/` | Sys/eval 提取模式 | `function_call` | 规则段暂空（无预置 sink 规则）；tree-sitter-perl 未随环境安装 → 运行时按 regex-only 降级 |
+| PowerShell | `powershell/ql/lib/codeql/powershell/security/` | Invoke/cmd 提取模式 | `command_elements` | 规则段暂空（无预置 sink 规则）；tree-sitter 无 PowerShell grammar → regex-only |
+
+> **诚实性说明**：Shell/Perl/PowerShell 目前 `rules` 段为空（无 CodeQL 清洗出的 sink），self-check 覆盖率统计不计入这三种语言的规则（分母为 0），故不影响 100% 结论；但这也意味着**这三种语言当前实际不产生 L0 候选**，命中依赖 R1.5 wrapper_detection 与 R4 业务假说。若要覆盖，需先在 `rules` 段补入规则并安装对应 grammar 包。
 
 清洗步骤：
 1. `git clone https://github.com/github/codeql --depth 1 --branch <tag>` 固定版本
@@ -208,6 +212,15 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 3. 按 CodeQL 目录结构（按 CWE 组织）归类
 4. 输出到 `security_profiles.json` 对应语言段，写入 `codeql_revision` 字段
 5. 手工补丁段（`manual_additions`）单独维护，标注来源理由与不在 CodeQL 中的原因
+
+### 4.2.1 AST S-expression 验证方法
+
+每条 `ast_patterns` 在写入 `security_profiles.json` 前，必须通过以下双重验证，杜绝「pattern 写错节点类型名 → 运行时抛异常 → 整文件静默降级为正则」的隐患：
+
+1. **编译验证**：用对应语言的 tree-sitter grammar 实例化 `Query(lang, pattern)`，不得抛 `QueryError`。此步捕获错误的节点类型名（如把 Java 的 `method_invocation` 误用到 Kotlin/Scala）、错误的字段名（如 C# 的 `Expression` 应为 `expression`）、不存在的语法结构。
+2. **命中验证**：在一段包含目标 sink 的最小正样例代码上运行该 query，命中数必须 > 0。此步捕获「能编译但匹配不到真实代码」的空 pattern。
+
+**约束**：任一验证失败的 pattern 一律不得写入。若某规则所有候选 pattern 均无法通过验证，则该规则保持 **regex-only**（移除 `ast_patterns` 字段），self-check 覆盖率如实下降，**绝不以编译失败的 pattern 充数覆盖率**。当前 12 种带 grammar 包的语言（C++/Java/Python/JS/Go/C#/Rust/PHP/Ruby/Swift/Kotlin/Scala）共 187 条 pattern 全部通过双重验证。
 
 ### 4.3 手工补丁段 (manual_additions)
 
