@@ -286,6 +286,183 @@ function buildR4Prompt(domainProfile, filePath) {
 如果审查无问题:   HYPOTHESIS_CLEAN: [假说名称] - [简短说明]`;
 }
 
+// ==================== R1.5 框架感知扩展 (REQ-18, 始终执行) ====================
+
+// 扩展名 → 语言 (与 ast_scanner / batch_verify 保持一致的子集)
+const R15_EXT_LANG = {
+    '.java': 'java', '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.c': 'cpp',
+    '.h': 'cpp', '.hpp': 'cpp', '.py': 'python', '.go': 'go', '.rs': 'rust',
+    '.js': 'javascript', '.ts': 'javascript', '.jsx': 'javascript', '.tsx': 'javascript',
+    '.cs': 'csharp', '.php': 'php', '.rb': 'ruby', '.swift': 'swift',
+    '.kt': 'kotlin', '.kts': 'kotlin', '.scala': 'scala', '.sh': 'shell',
+    '.pl': 'perl', '.pm': 'perl', '.ps1': 'powershell'
+};
+const R15_IGNORE_DIRS = ['node_modules', '.git', '.audit_results', 'build', 'target',
+    'dist', 'vendor', 'third_party', 'libs', 'test', 'tests'];
+
+/** 统计项目各语言源文件数，返回按文件数降序的语言列表。 */
+function detectLanguages(workspacePath) {
+    const counts = {};
+    function walk(dir, depth) {
+        if (depth > 6) return;
+        let list;
+        try { list = fs.readdirSync(dir); } catch (e) { return; }
+        for (const file of list) {
+            const full = path.join(dir, file);
+            let stat;
+            try { stat = fs.statSync(full); } catch (e) { continue; }
+            if (stat.isDirectory()) {
+                if (!R15_IGNORE_DIRS.includes(file)) walk(full, depth + 1);
+            } else if (!file.includes('.min.')) {
+                const lang = R15_EXT_LANG[path.extname(file).toLowerCase()];
+                if (lang) counts[lang] = (counts[lang] || 0) + 1;
+            }
+        }
+    }
+    walk(workspacePath, 0);
+    const langs = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    return { langs, counts };
+}
+
+/** 构建 framework-sink-extractor 任务书 (与 batch_verify._build_r15_prompt 对齐)。 */
+function buildR15Prompt(lang, patterns, workspacePath) {
+    const patLines = [];
+    for (const [group, globs] of Object.entries(patterns)) {
+        if (group.startsWith('_')) continue;
+        patLines.push(`  - **${group}**: ${globs.join(', ')}`);
+    }
+    const patBlock = patLines.length ? patLines.join('\n') : '  (该语言无预置 wrapper 模式)';
+    return `你是一个 framework-sink-extractor 子智能体 (R1.5 阶段)。你有完整的 grep/read 工具。
+
+## 任务上下文
+- **项目路径**: ${workspacePath}
+- **目标语言**: ${lang}
+- **wrapper_detection 模式** (名字匹配以下 glob 的、本项目自定义的函数/宏/方法):
+${patBlock}
+
+## 任务
+1. 用 grep 在全项目 ${lang} 源码中，找出**名字匹配上述模式**、且是**本项目自定义**（非第三方库）的函数/宏/方法。
+2. 判断它是否 wrapping 了 sink 性质：分配内存 / 执行命令 / 拼接 SQL / 跨进程调用 / 释放对象。
+3. 判断远端/外部数据是否可能流入该 wrapper。
+
+## 输出格式（强制 JSON，不要其他文字）
+{"extended_sinks":[{"file":"相对路径","line":123,"wrapper_name":"osi_calloc","matched_pattern":"allocator_pattern:osi_*","inferred_sink_type":"CWE-789 UncontrolledMemoryAllocation","remote_data_reachable":true,"evidence":"一句话说明"}]}
+若未发现，返回 {"extended_sinks":[]}。`;
+}
+
+/** 从子进程 stdout 提取 extended_sinks 数组。 */
+function extractExtendedSinks(stdout) {
+    if (typeof stdout !== 'string') return [];
+    const m = stdout.match(/\{[\s\S]*"extended_sinks"[\s\S]*\}/);
+    if (!m) return [];
+    try {
+        const obj = JSON.parse(m[0]);
+        return Array.isArray(obj.extended_sinks) ? obj.extended_sinks : [];
+    } catch (e) {
+        // 宽松兜底: 尝试截取到最后一个 ]
+        try {
+            const start = stdout.indexOf('"extended_sinks"');
+            const arrStart = stdout.indexOf('[', start);
+            const arrEnd = stdout.lastIndexOf(']');
+            if (arrStart >= 0 && arrEnd > arrStart) {
+                return JSON.parse(stdout.slice(arrStart, arrEnd + 1));
+            }
+        } catch (e2) { /* give up */ }
+        return [];
+    }
+}
+
+/**
+ * R1.5 框架感知扩展 (REQ-18, 无条件执行)。
+ * 读 wrapper_detection → 每主要语言 spawn framework-sink-extractor 子进程
+ * → 产出 extended_sinks.json → 以 origin=L1 并入 queue（原地修改并返回并入数）。
+ */
+async function runR15FrameworkExtraction(workspacePath, queue, outputDir) {
+    const profilePath = path.join(__dirname, 'resources', 'security_profiles.json');
+    let wrapperDetection = {};
+    try {
+        wrapperDetection = JSON.parse(fs.readFileSync(profilePath, 'utf8')).wrapper_detection || {};
+    } catch (e) {
+        console.error(`${colors.yellow}[R1.5] 无法读取 wrapper_detection，跳过扩展。${colors.reset}`);
+        return 0;
+    }
+
+    const { langs, counts } = detectLanguages(workspacePath);
+    const applicable = langs.filter(l => wrapperDetection[l]);
+    console.log(`${colors.blue}[R1.5] 框架感知扩展 | 语言: ${langs.join(', ') || '无'} | 适用 wrapper 检测: ${applicable.join(', ') || '无'}${colors.reset}`);
+
+    if (applicable.length === 0) {
+        console.log(`${colors.yellow}[R1.5] 无适用语言的 wrapper_detection 配置，扩展阶段无产出（但已执行）。${colors.reset}`);
+        fs.writeFileSync(path.join(outputDir, 'extended_sinks.json'),
+            JSON.stringify({ extended_sinks: [] }, null, 2), 'utf8');
+        return 0;
+    }
+
+    const allSinks = [];
+    // 逐语言 spawn（数量少，串行即可，避免与 R3 抢并发额度）
+    for (const lang of applicable) {
+        console.log(`${colors.cyan}  [R1.5] 扫描 ${lang} wrapper (${counts[lang]} 文件)...${colors.reset}`);
+        const prompt = buildR15Prompt(lang, wrapperDetection[lang], workspacePath);
+        try {
+            const stdout = await runAgentCmd(prompt);
+            const sinks = extractExtendedSinks(stdout);
+            sinks.forEach(s => { s._lang = lang; });
+            allSinks.push(...sinks);
+            console.log(`${colors.green}  [R1.5] ${lang}: 发现 ${sinks.length} 个 wrapper sink${colors.reset}`);
+        } catch (err) {
+            console.error(`${colors.red}  [R1.5] ${lang} 扫描异常: ${err.message.slice(0, 100)}${colors.reset}`);
+        }
+    }
+
+    fs.writeFileSync(path.join(outputDir, 'extended_sinks.json'),
+        JSON.stringify({ extended_sinks: allSinks }, null, 2), 'utf8');
+
+    // 以 origin=L1 并入 queue，去重键 file+line+wrapper_name
+    let maxN = 0;
+    const existingKeys = new Set();
+    queue.forEach(c => {
+        const cid = c.id || '';
+        if (cid.startsWith('CAND-')) {
+            const n = parseInt(cid.split('-')[1], 10);
+            if (!isNaN(n)) maxN = Math.max(maxN, n);
+        }
+        existingKeys.add(`${c.file_path}|${c.source_line || c.line_number}|${c.source_pattern}`);
+    });
+
+    let added = 0;
+    for (const s of allSinks) {
+        const key = `${s.file}|${s.line}|${s.wrapper_name}`;
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        maxN += 1;
+        const cwe = (s.inferred_sink_type || 'Unknown').split(' ')[0];
+        queue.push({
+            id: `CAND-${String(maxN).padStart(3, '0')}`,
+            origin: 'L1',
+            language: s._lang || '?',
+            file_path: s.file || '',
+            source_file: s.file || '',
+            source_line: s.line || 0,
+            line_number: s.line || 0,
+            cwe_id: cwe,
+            sink_type: cwe,
+            category: s.inferred_sink_type || 'FrameworkWrapper',
+            source_pattern: s.wrapper_name || '',
+            matched_pattern: s.matched_pattern || '',
+            type: 'TAINT_ANALYSIS',
+            sink_content: (s.evidence || '').slice(0, 1000),
+            priority: 1,
+            status: 'PENDING',
+            verdict: null,
+            reachability_type: null,
+            blocking_point: null
+        });
+        added += 1;
+    }
+    console.log(`${colors.green}[R1.5] 并入 ${added} 个 L1 候选 (extended_sinks.json 已落盘)${colors.reset}`);
+    return added;
+}
+
 // ==================== --check-availability 子命令 ====================
 
 function checkAvailability() {
@@ -375,6 +552,27 @@ async function executeWorkflow(workspacePath) {
     }
 
     let queue = queueObj.candidates;
+
+    // --- 阶段 1.5: 框架感知扩展 (REQ-18, 无条件执行, 与 R1 互补) ---
+    // 幂等: extended_sinks.json 已存在说明本轮已跑过 R1.5(断点续传时不重复 spawn)。
+    const extendedSinksPath = path.join(outputDir, 'extended_sinks.json');
+    if (!fs.existsSync(extendedSinksPath)) {
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`${colors.yellow}[R1.5] 框架感知扩展 (始终执行, 捕获 L0 规则未覆盖的项目自有 wrapper)${colors.reset}`);
+        console.log(`${'='.repeat(60)}`);
+        try {
+            const added = await runR15FrameworkExtraction(workspacePath, queue, outputDir);
+            if (added > 0) {
+                // 立即落盘, 保证断点续传能看到新并入的 L1 候选
+                saveQueue(queuePath, queueObj.raw, queue);
+            }
+        } catch (err) {
+            console.error(`${colors.red}[R1.5] 扩展阶段异常(不阻断主流程): ${err.message.slice(0, 120)}${colors.reset}`);
+        }
+    } else {
+        console.log(`${colors.yellow}[R1.5] extended_sinks.json 已存在, 跳过重复扫描(断点续传)。${colors.reset}`);
+    }
+
     const pendingCandidates = queue.filter(c => c.status === "PENDING");
     console.log(`${colors.green}[+] 队列: 总计 ${queue.length} 项, PENDING ${pendingCandidates.length} 项, 已完成 ${queue.length - pendingCandidates.length} 项${colors.reset}`);
 

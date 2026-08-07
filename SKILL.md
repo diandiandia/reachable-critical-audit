@@ -83,8 +83,19 @@ R1 完成后**必须无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 
 1. **加载 wrapper_detection**：从 `security_profiles.json` 的 `wrapper_detection.<lang>` 段加载项目 wrapper 识别模式。例如：
    - C++: `allocator_pattern` (osi_*/`*alloc*`) / `parser_macros` (STREAM_TO_*/`*_TO_STREAM`) / `lifecycle` (`*_delete`/`*::reset`) / `async_ownership` (`*::Unretained`)
    - Java: `sql_wrappers` (`*query*`/`raw*`) / `ipc_sinks` (`ContentResolver.*`/`Intent.*`) / `android_ipc_getter` (`getFilter*`/`getExtra*`)
-2. **拉起 framework-sink-extractor 子智能体**：通过平台兼容层（Mode A/A'/B）拉起，任务书见附录 A.3。子智能体扫描全项目，找出名字匹配模式的、本项目自定义的函数/宏/方法。
-3. **落盘并入队**：产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L1`。
+2. **拉起 framework-sink-extractor 子智能体**：通过平台兼容层（Mode A/A'/B）拉起，任务书见附录 A.3。子智能体扫描全项目，找出名字匹配模式的、本项目自定义的函数/宏/方法。**各模式下的具体编排如下（工具已内置，禁止手工替代）**：
+   - **Mode A'（`task` / Claude Code `Agent` 工具）**：
+     ```
+     1. python3 tools/batch_verify.py <workspace> --stage r15
+        → 输出各主要语言的 framework-sink-extractor 任务书 (含 wrapper_detection 模式)
+     2. 对每个 task 用 task/Agent 工具拉起子智能体，收集其 extended_sinks JSON
+     3. 汇总写入一个文件 (如 .audit_results/_r15_raw.json)，然后:
+        python3 tools/batch_verify.py <workspace> --stage r15-collect --sinks-file <该文件>
+        → 以 origin=L1 并入 verify_queue.json (自动去重 file+line+wrapper)
+     ```
+   - **Mode B（`run_workflow.js`）**：阶段 1.5 自动执行（AST 扫描后、R3 验证前），逐语言 spawn 子进程、产出 `extended_sinks.json` 并以 `origin=L1` 并入队列，幂等（`extended_sinks.json` 存在则断点续传时不重复）。
+   - **Mode A（Antigravity）**：`define_subagent` + `invoke_subagent` 拉起 `framework-sink-extractor`，产出同上。
+3. **落盘并入队**：产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L1`，`priority` 默认 P1。
 4. **L2 fallback（非预设语言）**：若项目包含 15 种预设之外的语言（如 Erlang），Agent 必须用内置安全知识生成该语言的 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，**经主 Agent 显式复核签名**（写入 `reviewed_by: "main-agent"`）后才并入候选队列，`origin` 标记 `L2`。
 
 ---
@@ -95,11 +106,12 @@ R1 完成后**必须无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 
 
 **按优先级出队**：`batch_verify.py --stage next` 按候选 `priority` 字段升序出队（P0 先验证），确保高严重性 CWE（RCE/注入/内存破坏）优先处理。优先级语言无关，由 `ast_scanner.py` 在入队时根据 `cwe_id` 自动标记。
 
-**Mode A' (opencode `task` 工具) 分批验证——用 `batch_verify.py` 编排**：
+**Mode A' (opencode `task` 工具) 分批验证——用 `batch_verify.py` 编排**（**前置**：进入本循环前必须已完成 R1.5 `--stage r15` + `--stage r15-collect`，确保 L1 候选已并入队列）：
 ```
 循环:
   1. python3 tools/batch_verify.py <workspace> --stage next
      → 输出下一批 3~4 个候选的任务书（含 file/line/CWE/自定义 prompt）
+     → 若返回 {"status":"ALL_DONE"} 则跳出循环
   2. 对每个 task 并发执行:
      task(subagent_type="general",
           description="vulnerability-verifier: CAND-xxx",
@@ -108,6 +120,10 @@ R1 完成后**必须无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 
   4. python3 tools/batch_verify.py <workspace> --stage collect \\
        --batch <n> --cand-<num>='{"verdict":"REACHABLE",...}' ...
      → 写入 verify_queue.json
+     → 返回 {"status":"BATCH_COLLECTED"} 全部成功;
+       {"status":"BATCH_COLLECTED_WITH_ERRORS","errors":[...]} 时: 合法结果已落盘,
+       errors 中列出的候选保持 PENDING, 下一轮 next 会自动重新出队重试
+       (绝不会因个别坏 verdict 丢弃整批已完成工作)
   5. python3 tools/batch_verify.py <workspace> --stage status
      → 检查进度
 
@@ -367,13 +383,18 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
 R0  工具自检 + 平台探测 + mkdir .audit_results/ + 初始化 verify_queue.json
      │  失败即 fail-fast
      ↓
-R1  + R1.5  静态规则扫描 + 框架感知扩展 (并行):
-     │  ast_scanner.py 正则粗筛 + tree-sitter AST 校验 (L0)
-     │  wrapper_detection 扫描项目自有 wrapper (L1)
+R1  静态规则扫描 (L0):
+     │  ast_scanner.py 正则粗筛 + tree-sitter AST 校验
      │  测试/构建/第三方路径候选丢弃 (语言无关)
      │  按 CWE 标记 priority 字段 (P0/P1/P2)
-     │  候选入队 origin=L0/L1, priority=0~2, status=PENDING
+     │  候选入队 origin=L0, priority=0~2, status=PENDING
      │  非预设语言 → L2 fallback (主 Agent 复核)
+     ↓
+R1.5  框架感知扩展 (L1) — 无条件执行, R1 完成后进行:
+     │  Mode A':  batch_verify.py --stage r15 → 子智能体扫 wrapper → --stage r15-collect 并入
+     │  Mode B:   run_workflow.js 阶段1.5 自动 spawn (幂等)
+     │  wrapper_detection 扫描项目自有 wrapper, 产出 extended_sinks.json
+     │  候选入队 origin=L1, priority=1, status=PENDING
      ↓
 R3  双向回溯验证 (按优先级出队):
      │  分批并发 3~5 子智能体 (平台兼容层选定模式)
