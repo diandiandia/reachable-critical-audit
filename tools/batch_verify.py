@@ -39,6 +39,8 @@ import glob
 BATCH_SIZE = 4
 REQUIRED_VERDICT_KEYS = {"verdict", "reachability_type", "call_chain", "call_chain_depth", "evidence"}
 MIN_CALL_CHAIN_DEPTH = 3
+VALID_VERDICTS = {"REACHABLE", "UNREACHABLE", "NEEDS_REVIEW"}
+VALID_REACHABILITY_TYPES = {"DIRECT", "ACROSS_BOUNDARY", "INDIRECT", None}
 
 # 扩展名 → 语言 (与 ast_scanner.ASTCoarseScanner.EXTENSION_MAP 保持一致的子集)
 _EXT_LANG = {
@@ -88,6 +90,33 @@ def save_queue(project_root, queue):
         queue = {"schema_version": "2.0", "candidates": queue}
     with open(path, "w") as f:
         json.dump(queue, f, indent=2, ensure_ascii=False)
+
+
+def _validate_verdict_payload(cand_id, payload):
+    if not isinstance(payload, dict):
+        return [f"{cand_id}: verdict must be a dict (kept PENDING for retry)"]
+
+    errors = []
+    missing = sorted(REQUIRED_VERDICT_KEYS - set(payload.keys()))
+    if missing:
+        errors.append(f"{cand_id}: missing required verdict keys {missing} (kept PENDING for retry)")
+
+    if payload.get("verdict") not in VALID_VERDICTS:
+        errors.append(f"{cand_id}: invalid verdict '{payload.get('verdict')}' (kept PENDING for retry)")
+
+    if payload.get("reachability_type") not in VALID_REACHABILITY_TYPES:
+        errors.append(f"{cand_id}: invalid reachability_type '{payload.get('reachability_type')}'")
+
+    if "call_chain" in payload and not isinstance(payload.get("call_chain"), list):
+        errors.append(f"{cand_id}: call_chain must be a list")
+
+    if "call_chain_depth" in payload and not isinstance(payload.get("call_chain_depth"), int):
+        errors.append(f"{cand_id}: call_chain_depth must be an integer")
+
+    if "evidence" in payload and not isinstance(payload.get("evidence"), str):
+        errors.append(f"{cand_id}: evidence must be a string")
+
+    return errors
 
 
 def stage_next(project_root):
@@ -148,11 +177,10 @@ def stage_collect(project_root, batch_id, verdicts):
         if cand_id not in cand_map:
             errors.append(f"Unknown candidate: {cand_id}")
             continue
-        if not isinstance(v, dict):
-            errors.append(f"{cand_id}: verdict must be a dict (kept PENDING for retry)")
-            continue
-        if v.get("verdict") not in ("REACHABLE", "UNREACHABLE", "NEEDS_REVIEW"):
-            errors.append(f"{cand_id}: invalid verdict '{v.get('verdict')}' (kept PENDING for retry)")
+
+        validation_errors = _validate_verdict_payload(cand_id, v)
+        if validation_errors:
+            errors.extend(validation_errors)
             continue
 
         # Validate call chain depth
@@ -200,6 +228,19 @@ def stage_assert(project_root):
     candidates = queue["candidates"]
     pending = [c for c in candidates if c.get("status") == "PENDING"]
     needs_review = [c for c in candidates if c.get("verdict") == "NEEDS_REVIEW"]
+    invalid_verified = []
+    for c in candidates:
+        if c.get("status") != "VERIFIED":
+            continue
+        verdict = c.get("verdict")
+        if verdict not in VALID_VERDICTS:
+            invalid_verified.append({"id": c.get("id"), "reason": "invalid verdict"})
+            continue
+        if verdict in ("REACHABLE", "UNREACHABLE"):
+            if not isinstance(c.get("call_chain"), list) or c.get("call_chain_depth", 0) < MIN_CALL_CHAIN_DEPTH:
+                invalid_verified.append({"id": c.get("id"), "reason": "insufficient call_chain_depth"})
+            if not c.get("evidence"):
+                invalid_verified.append({"id": c.get("id"), "reason": "missing evidence"})
 
     if pending:
         print(json.dumps({
@@ -209,6 +250,14 @@ def stage_assert(project_root):
             "needs_review_count": len(needs_review)
         }))
         sys.exit(2)
+
+    if invalid_verified:
+        print(json.dumps({
+            "status": "ASSERT_FAILED_INVALID_VERIFIED",
+            "invalid_count": len(invalid_verified),
+            "invalid": invalid_verified[:50],
+        }))
+        sys.exit(3)
 
     reachable = [c for c in candidates if c.get("verdict") == "REACHABLE"]
     unreachable = [c for c in candidates if c.get("verdict") == "UNREACHABLE"]

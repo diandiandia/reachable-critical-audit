@@ -1,6 +1,6 @@
 # Reachable Critical Audit Skill -- 系统设计文档 (System Design)
 
-本文档描述了 `reachable-critical-audit` 技能 v2 的架构设计，并详细说明如何通过系统设计实现 REQUIREMENTS.md 中定义的每一项需求（REQ-01 至 REQ-20）。本版本相对 pre-v2 的核心架构改动：
+本文档描述了 `reachable-critical-audit` 技能 v2 的架构设计，并详细说明如何通过系统设计实现 REQUIREMENTS.md 中定义的每一项需求（REQ-01 至 REQ-23）。本版本相对 pre-v2 的核心架构改动：
 
 1. **漏斗三阶段 → 五阶段**：新增 R0 工具自检、R1.5 框架感知扩展两个强制阶段。
 2. **单一平台 → 双平台兼容层**：保留 Antigravity `define_subagent`/`agy`，新增 opencode `task` 降级。
@@ -78,7 +78,7 @@ pre-v2 的双轨制保留并强化：
 | **Mode A** | Antigravity | `define_subagent` + `invoke_subagent` | `vulnerability-verifier` / `business-logic-verifier` / `framework-sink-extractor` | 工具列表含 `define_subagent` 或 `REACHABLE_AUDIT_MODE=native` |
 | **Mode A'** | opencode 等 | `task(subagent_type="general"/"explore")` + `tools/batch_verify.py` 编排 | 通用子智能体 + batch 调度器（纯 Python，不依赖 `agy`） | 工具列表含 `task` 或 `OPENCODE=1`，或 Mode A 不可用 |
 | **Mode A''** | Claude Code 等 | 主 Agent 单进程本地串行研判 (`grep_search`/`view_file`) | 无子智能体（主进程遍历 `verify_queue` 串行研判） | 既无 `define_subagent` 也无 `task` 工具，且 CLI 不可用 |
-| **Mode B** | Antigravity CLI | `run_workflow.js` + `agy` spawn | 子进程 agy 会话 | `node run_workflow.js --check-availability` 返回 Mode B；ENOENT 返回 `AGENT_NATIVE_FALLBACK` 切回 Mode A' 或 Mode A'' |
+| **Mode B** | CLI | `run_workflow.js` + `claude` / `agy` / `codex` spawn | 独立 CLI 子进程会话 | `node run_workflow.js --check-availability` 返回可用 CLI；ENOENT 返回 `AGENT_NATIVE_FALLBACK` 切回 Mode A' 或 Mode A'' |
 
 ### 3.2 执行模式自检流程
 
@@ -147,7 +147,7 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 - `verify_queue.json` 强制落盘 + 状态机
 - R1.5 始终执行（无条件，与 R1 互补）
 - R4 6 类固化假说
-- REQ-10 量化公式分母为 L0+L1+R4 总和
+- REQ-10 量化公式分母为 L0+L1+L2+R4 总和
 
 ---
 
@@ -269,26 +269,26 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
     *   安全审计依托平台原生智能体拓扑，由 REQ-17 平台兼容层决定具体执行模式。
     *   **Mode A (Antigravity)**：`define_subagent` 创建 `vulnerability-verifier`/`business-logic-verifier`/`framework-sink-extractor`，`invoke_subagent` 隔离执行。
     *   **Mode A' (opencode)**：`task(subagent_type="general"/"explore", description="<role>: <id>", prompt=<任务书>)` 承载角色。任务书模板见 §3.3。
-    *   **Mode B (Antigravity CLI)**：[run_workflow.js](file:///root/reachable-critical-audit/run_workflow.js) + `agy` spawn 编排，ENOENT 自动降级到 Mode A'。
+    *   **Mode B (CLI)**：[run_workflow.js](file:///root/reachable-critical-audit/run_workflow.js) + `claude` / `agy` / `codex` spawn 编排，ENOENT 自动降级到 Mode A' 或 Mode A''。
     *   三种模式共享同一任务书模板、同一 verify_queue 状态机、同一 R0/R1/R1.5/R3/R4 流程，行为一致。
 
 ### REQ-02: 语言层级 fallback (L0/L1/L2)
 *   **设计实现**：
     *   **L0**：`security_profiles.json` `rules` 段，由 CodeQL 清洗产出，覆盖 15 种预设语言的 Top-N 高危 CWE。
     *   **L1**：`wrapper_detection` 段驱动 R1.5 阶段（REQ-18）扫描项目自有 wrapper，产出 `extended_sinks.json` 并入队。
-    *   **L2**：非预设语言由 Agent 用内置安全知识生成 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，主 Agent 复核签名后才入队。
+    *   **L2**：非预设语言由 Agent 用内置安全知识生成 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，主 Agent 复核签名后才入队。Mode B 由 `run_workflow.js` 对非预设源码扩展执行保守通用高危模式扫描，写入 `reviewed_by: "main-agent"` 并以 `origin=L2` 入队。
     *   `verify_queue.json` 每个候选 `origin` 字段标 L0/L1/L2/R4，供 REQ-10 公式区分。
 
 ### REQ-03: AST 物理工具强制 R0 self-check
 *   **设计实现**：
-    *   R0 阶段第一步：`python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` + 对应语言 grammar 可用。
-    *   失败即 fail-fast 终止，**绝不降级为 LLM 脑补 AST**。
+    *   R0 阶段第一步：`python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` + 有规则语言的对应 grammar 可用。
+    *   规则库加载失败、tree-sitter 缺失、任一有规则语言 grammar 缺失或 AST 覆盖率低于阈值时 fail-fast 终止，**绝不降级为 LLM 脑补 AST**。
     *   R1 阶段每个 sink 候选必须经 `ast_scanner.py` 的 tree-sitter S-expression 校验，正则命中但 AST 校验不通过 → 降级 `NEEDS_REVIEW`。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
 *   **设计实现**：
     *   `ast_scanner.py` 过滤非调用类型关键字命中，忽略规范/风格/弱随机数噪点。
-    *   检索算法绕过 `.min.` / `vendor/` / `node_modules/` / `third_party/` / `libs/` 等典型第三方路径。
+    *   检索算法绕过 `.min.` / 路径组件为 `vendor` / `node_modules` / `third_party` / `libs` 等典型第三方路径；路径过滤必须基于相对路径组件，不使用绝对路径子串匹配。
     *   匹配行超 1000 字符强制截断 `... [TRUNCATED]`。
 
 ### REQ-05: 数据流污点与业务逻辑双轨审计
@@ -299,7 +299,7 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 ### REQ-06: 双向调用链数据流追踪 + 跨边界终结（语言无关）
 *   **设计实现**：
     *   子智能体以 sink 为终点，用 `grep` / `Grep` 工具反向查找调用者，逐层向上构建 `Sink <- Caller_L1 <- Caller_L2 <- ... <- Source` 拓扑。
-    *   **强制最小深度 3 层**：输出 `call_chain` 必须包含至少 Sink ← Caller_L1 ← Caller_L2，不足 3 层必须继续向上搜索。`batch_verify.py --stage collect` 自动验证深度，< 3 则升级为 NEEDS_REVIEW。
+    *   **强制最小深度 3 层**：输出 `call_chain` 必须包含至少 Sink ← Caller_L1 ← Caller_L2，不足 3 层必须继续向上搜索。`batch_verify.py --stage collect` 自动验证必需字段与深度；缺字段保持 PENDING 重试，< 3 的 REACHABLE/UNREACHABLE 升级为 NEEDS_REVIEW。
     *   遇接口/抽象类/特征(trait)/虚函数穿透到所有具体实现类继续回溯。
     *   遇跨进程 IPC / 跨 DSO / 跨 Provider authority / 子进程执行 / 动态代码执行边界时，按 REQ-19 终结判定。
 
@@ -346,7 +346,7 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 ### REQ-10: 审计漏斗量化度量 (L0/L1/L2 区分)
 *   **设计实现**：
     *   在 `compileReport` 阶段提取 `verify_queue.json` 全部候选，按 `origin` 分类统计：
-        *   `Rule Coverage Rate` = 已验证 / 总候选
+        *   `Rule Coverage Rate` = 已验证 / 总候选（L0+L1+L2+R4）
         *   `Reachability Rate` = REACHABLE / 已验证
         *   `Noise Reduction Rate` = UNREACHABLE / 已验证
         *   `Sink Discovery Rate` = L0 命中 / 总候选（规则库召回能力）
@@ -367,7 +367,7 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 ### REQ-13: 有向自主逻辑漏洞探索
 *   **设计实现**：
     *   R3 完成后扫描高危业务模块（`auth`/`payment`/`order`/`admin`/`map`/`pbap`/`avrc` 等），上限 6 个文件。
-    *   每模块拉起 `business-logic-verifier` 子智能体，模糊提示词发散威胁建模，结果落 `r4_findings` 段。
+    *   每个固化假说拉起 `business-logic-verifier` 子智能体，结合最多 6 个高危锚点与全项目搜索做有向审查，结果落 `r4_findings` 段。
 
 ### REQ-14: 启发式项目架构与业务域自动感知
 *   **设计实现**：
@@ -381,7 +381,7 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 
 ### REQ-16: 业务逻辑专项 Subagent 并行深钻
 *   **设计实现**：
-    *   通过 REQ-01 编排机制拉起 `business-logic-verifier` 并发深钻 R4 锚点，结果落 `verify_queue.json` 的 `r4_findings` 段（origin=R4）。
+    *   通过 REQ-01 编排机制拉起 `business-logic-verifier` 并发深钻 H1-H6 六个假说，结果落 `verify_queue.json` 的 `r4_findings` 段（origin=R4），并参与最终指标分母。
 
 ### REQ-17: 平台兼容层与执行模式自检
 *   **设计实现**：

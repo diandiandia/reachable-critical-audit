@@ -45,7 +45,7 @@ Skill 必须在 R0 阶段探测平台能力，选择执行模式并写入 `.audi
 
 Skill 启动后**第一步必须**执行以下三件事，任何一步失败即 fail-fast 终止审计：
 
-1. **AST 工具自检**：运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` + 对应语言 grammar 可用。失败绝不允许降级为 LLM 脑补 AST。
+1. **AST 工具自检**：运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` + 有规则语言的对应 grammar 可用，并确认 AST pattern 覆盖率达到阈值。失败绝不允许降级为 LLM 脑补 AST。
 2. **平台模式探测**：按"平台兼容层"表格顺序探测，结果写入 `.audit_results/execution_mode.json`：
    ```json
    {"mode": "A_NATIVE_ANTIGRAVITY|A_NATIVE_OPENCODE|B_ANTIGRAVITY_CLI",
@@ -96,7 +96,7 @@ R1 完成后**必须无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 
    - **Mode B（`run_workflow.js`）**：阶段 1.5 自动执行（AST 扫描后、R3 验证前），逐语言 spawn 子进程、产出 `extended_sinks.json` 并以 `origin=L1` 并入队列，幂等（`extended_sinks.json` 存在则断点续传时不重复）。
    - **Mode A（Antigravity）**：`define_subagent` + `invoke_subagent` 拉起 `framework-sink-extractor`，产出同上。
 3. **落盘并入队**：产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L1`，`priority` 默认 P1。
-4. **L2 fallback（非预设语言）**：若项目包含 15 种预设之外的语言（如 Erlang），Agent 必须用内置安全知识生成该语言的 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，**经主 Agent 显式复核签名**（写入 `reviewed_by: "main-agent"`）后才并入候选队列，`origin` 标记 `L2`。
+4. **L2 fallback（非预设语言）**：若项目包含 15 种预设之外的语言（如 Erlang），Agent 必须用内置安全知识生成该语言的 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，**经主 Agent 显式复核签名**（写入 `reviewed_by: "main-agent"`）后才并入候选队列，`origin` 标记 `L2`。Mode B 会在 R1.5 后自动对非预设源码扩展执行保守高危模式扫描并入队。
 
 ---
 
@@ -123,7 +123,8 @@ R1 完成后**必须无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 
      → 返回 {"status":"BATCH_COLLECTED"} 全部成功;
        {"status":"BATCH_COLLECTED_WITH_ERRORS","errors":[...]} 时: 合法结果已落盘,
        errors 中列出的候选保持 PENDING, 下一轮 next 会自动重新出队重试
-       (绝不会因个别坏 verdict 丢弃整批已完成工作)
+       (绝不会因个别坏 verdict 丢弃整批已完成工作；缺少 `verdict` / `reachability_type` /
+       `call_chain` / `call_chain_depth` / `evidence` 的结果保持 PENDING 重试)
   5. python3 tools/batch_verify.py <workspace> --stage status
      → 检查进度
 
@@ -186,7 +187,7 @@ R4 启动前必须 Assert：`verify_queue.json` 中无 `PENDING` 节点，否则
 | 6 | 多租户/owner 比对缺失 | CWE-639/285 | 写/删/查资源方法体无 session vs owner 相等性比对 |
 
 ### 3. Subagent 专项并发深钻（REQ-16）
-通过平台兼容层拉起 `business-logic-verifier` 子智能体（任务书见附录 A.2），并发深钻锚点。结果落 `verify_queue.json` 的 `r4_findings` 段，`origin=R4`。R4 完成后也必须 Assert：所有 R4 候选已 `VERIFIED`。
+通过平台兼容层拉起 `business-logic-verifier` 子智能体（任务书见附录 A.2），并发深钻 H1-H6 六个固定假说。即使没有文件名锚点，也必须按全项目审查 6 类假说。结果落 `verify_queue.json` 的 `r4_findings` 段，`origin=R4`。R4 完成后也必须 Assert：H1-H6 全部存在且 `status=VERIFIED`。
 
 ---
 
@@ -197,10 +198,10 @@ R4 启动前必须 Assert：`verify_queue.json` 中无 `PENDING` 节点，否则
 ### 量化公式（REQ-10，*修订*）
 
 ```
-Rule Coverage Rate    = (R1 + R1.5 + R4) 已验证候选  /  (R1 + R1.5 + R4) 总候选
+Rule Coverage Rate    = (R1 + R1.5 + L2 + R4) 已验证候选  /  (R1 + R1.5 + L2 + R4) 总候选
 Reachability Rate     = REACHABLE                                  /  已验证候选
 Noise Reduction Rate  = UNREACHABLE                                /  已验证候选
-Sink Discovery Rate   = R1(L0) 命中                                /  (R1 + R1.5 + R4) 总候选
+Sink Discovery Rate   = R1(L0) 命中                                /  (R1 + R1.5 + L2 + R4) 总候选
                                                             ↑ 越接近 1 说明 L0 规则库越完备
 False Negative Risk   = L1 占比 + R4 REACHABLE 占比
                                                             ↑ 越高说明仅靠 L0 漏报越多,督促规则库补齐
@@ -296,7 +297,7 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
   "cwe": ["CWE-xxx"]
 }
 
-**质量门禁**: call_chain_depth < 3 的输出将被标记为 NEEDS_REVIEW 并退回重新分析。
+**质量门禁**: 缺少必需 JSON 字段的输出保持 PENDING 并进入下一轮重试；`REACHABLE` / `UNREACHABLE` 但 `call_chain_depth < 3` 的输出会自动降级为 `NEEDS_REVIEW` 并显式列入报告。
 ```
 
 ### A.2 business-logic-verifier 任务书

@@ -155,9 +155,14 @@ class ASTCoarseScanner:
         prop_patterns_raw = self.profile.get("property_check_patterns", [])
         prop_patterns = prop_patterns_raw.get("patterns", []) if isinstance(prop_patterns_raw, dict) else prop_patterns_raw
 
-        for root, _, files in os.walk(workspace_path):
-            if any(ignored in root for ignored in ["node_modules", ".git", "scratch", "target", "build"]):
+        for root, dirs, files in os.walk(workspace_path):
+            rel_root = os.path.relpath(root, workspace_path)
+            if rel_root != "." and self._is_ignored_path(rel_root):
+                dirs[:] = []
                 continue
+            dirs[:] = [d for d in dirs if not self._is_ignored_path(
+                d if rel_root == "." else os.path.join(rel_root, d)
+            )]
 
             for file in files:
                 ext = os.path.splitext(file)[1].lower()
@@ -226,9 +231,14 @@ class ASTCoarseScanner:
             cand["source_file"] = cand.get("file_path", "")
             cand["source_line"] = cand.get("line_number", 0)
             cand["sink_type"] = cand.get("cwe_id", "Unknown")
-            if "status" not in cand or not cand["status"]:
-                cand["status"] = "PENDING"
-            cand["verdict"] = None
+            status = cand.get("status")
+            verdict = cand.get("verdict")
+            if status in ("REACHABLE", "UNREACHABLE", "NEEDS_REVIEW"):
+                cand["status"] = "VERIFIED"
+                cand["verdict"] = verdict if verdict in ("REACHABLE", "UNREACHABLE", "NEEDS_REVIEW") else status
+            else:
+                cand["status"] = status if status in ("PENDING", "VERIFIED") else "PENDING"
+                cand["verdict"] = verdict if verdict in ("REACHABLE", "UNREACHABLE", "NEEDS_REVIEW") else None
             cand["reachability_type"] = None
             cand["blocking_point"] = None
             # 统计语言命中数
@@ -256,9 +266,14 @@ class ASTCoarseScanner:
 
         # 主体语言统计
         lang_file_counts = {}
-        for root, _, files in os.walk(workspace_path):
-            if any(ignored in root for ignored in ["node_modules", ".git", "scratch", "target", "build"]):
+        for root, dirs, files in os.walk(workspace_path):
+            rel_root = os.path.relpath(root, workspace_path)
+            if rel_root != "." and self._is_ignored_path(rel_root):
+                dirs[:] = []
                 continue
+            dirs[:] = [d for d in dirs if not self._is_ignored_path(
+                d if rel_root == "." else os.path.join(rel_root, d)
+            )]
             for file in files:
                 if ".min." in file:
                     continue
@@ -480,10 +495,10 @@ class ASTCoarseScanner:
                         sink_content = sink_content[:1000] + "... [TRUNCATED]"
 
                     # REQ-03: 正则降级扫描产生的候选点标记 ast_verified=False，若无 AST 精确校验支撑则降级为 NEEDS_REVIEW 初始候选
-                    status = "NEEDS_REVIEW" if (HAS_TREE_SITTER and matched_rule.get("sinks", {}).get("ast_patterns")) else "PENDING"
+                    needs_review = HAS_TREE_SITTER and matched_rule.get("sinks", {}).get("ast_patterns")
                     # Rust unsafe 调用有 safety 注释时降级为 NEEDS_REVIEW（需人工复核）
-                    if rust_exempted and status == "PENDING":
-                        status = "NEEDS_REVIEW"
+                    if rust_exempted:
+                        needs_review = True
 
                     candidates.append({
                         "language": lang,
@@ -494,7 +509,8 @@ class ASTCoarseScanner:
                         "line_number": line_idx + 1,
                         "sink_content": sink_content,
                         "origin": "L0",
-                        "status": status,
+                        "status": "VERIFIED" if needs_review else "PENDING",
+                        "verdict": "NEEDS_REVIEW" if needs_review else None,
                         "sources_regex": matched_rule.get("sources", {}).get("regex", []),
                         "reachability_constraints": matched_rule.get("reachability_constraints", ""),
                         "verification_logic": matched_rule.get("verification_logic", "")
@@ -514,8 +530,8 @@ class ASTCoarseScanner:
     }
     _IGNORE_PATH_PARTS = {
         "test", "tests", "mock", "mocks", "unittest", "mockcify",
-        "tools", "tool", "build", "scripts",
-        "node_modules", "vendor", "third_party", "libs",
+        "tools", "tool", "build", "scripts", "scratch", "target", "dist",
+        "node_modules", "vendor", "third_party", "libs", ".git", ".audit_results",
     }
 
     @classmethod
@@ -565,6 +581,7 @@ if __name__ == "__main__":
         profile_ok = os.path.exists(profile_path)
         profile_langs = []
         wrapper_langs = []
+        rules_by_lang = {}
         total_rules_count = 0
         empty_ast_count = 0
         langs_with_gaps = {}
@@ -572,9 +589,10 @@ if __name__ == "__main__":
             try:
                 with open(profile_path, 'r', encoding='utf-8') as pf:
                     pdata = json.load(pf)
-                profile_langs = list(pdata.get("rules", {}).keys())
+                rules_by_lang = pdata.get("rules", {})
+                profile_langs = list(rules_by_lang.keys())
                 wrapper_langs = list(pdata.get("wrapper_detection", {}).keys())
-                for lang_name, r_list in pdata.get("rules", {}).items():
+                for lang_name, r_list in rules_by_lang.items():
                     total_rules_count += len(r_list)
                     for r in r_list:
                         if not r.get("sinks", {}).get("ast_patterns"):
@@ -598,18 +616,32 @@ if __name__ == "__main__":
         # REQ-03: AST 覆盖率门槛 (真实值; 覆盖率不足不阻断启动, 但如实告警)
         AST_COVERAGE_THRESHOLD = 95.0
         coverage_pct = round((1 - empty_ast_count / total_rules_count) * 100, 1) if total_rules_count else 0
+        required_grammar_langs = sorted([
+            lang for lang, rules in rules_by_lang.items()
+            if rules and lang != "powershell"
+        ])
+        grammar_missing = [
+            lang for lang in required_grammar_langs
+            if lang not in grammars_available
+        ]
+        ast_coverage_ok = coverage_pct >= AST_COVERAGE_THRESHOLD
+        grammar_coverage_ok = HAS_TREE_SITTER and not grammar_missing
+        status_ok = profile_ok and HAS_TREE_SITTER and ast_coverage_ok and grammar_coverage_ok
         res = {
-            "status": "ok" if HAS_TREE_SITTER else "FAIL: tree-sitter not available",
+            "status": "ok" if status_ok else "FAIL: AST self-check failed",
             "has_tree_sitter": HAS_TREE_SITTER,
             "tree_sitter_api": "tree_sitter_languages" if TS_QUERY_OLD_API else "individual_packages_v0.26",
             "grammars_available": grammars_available,
+            "required_grammar_languages": required_grammar_langs,
+            "grammar_missing": grammar_missing,
+            "grammar_coverage_ok": grammar_coverage_ok,
             "profile_loaded": profile_ok,
             "configured_languages": profile_langs,
             "wrapper_detection_languages": [l for l in wrapper_langs if not l.startswith("_")],
             "total_rules": total_rules_count,
             "ast_patterns_coverage_pct": coverage_pct,
             "ast_coverage_threshold_pct": AST_COVERAGE_THRESHOLD,
-            "ast_coverage_ok": coverage_pct >= AST_COVERAGE_THRESHOLD,
+            "ast_coverage_ok": ast_coverage_ok,
             "rules_missing_ast_patterns": empty_ast_count,
             "ast_gap_by_language": langs_with_gaps
         }
@@ -618,8 +650,13 @@ if __name__ == "__main__":
                 f"AST S-expression 覆盖率 {coverage_pct}% 低于阈值 {AST_COVERAGE_THRESHOLD}%; "
                 f"{empty_ast_count} 条规则仅有正则 (命中将降级为 NEEDS_REVIEW): {langs_with_gaps}"
             )
+        if grammar_missing:
+            res["grammar_warning"] = (
+                "缺少以下有规则语言的 tree-sitter grammar: "
+                + ", ".join(grammar_missing)
+            )
         print(json.dumps(res, indent=2, ensure_ascii=False))
-        sys.exit(0 if (profile_ok and HAS_TREE_SITTER) else 1)
+        sys.exit(0 if status_ok else 1)
 
     workspace = sys.argv[1] if len(sys.argv) > 1 else "."
     # REQ-12 目录守卫: 缺省输出到 <workspace>/.audit_results/ (batch_verify.py 硬编码

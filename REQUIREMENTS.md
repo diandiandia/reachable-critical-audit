@@ -53,14 +53,14 @@
 *   **详细描述**：系统按三层级处理语言覆盖，**删除 pre-v2 中"白名单外语言直接拒绝审计"的约束**：
     *   **L0**：项目主语言属于 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）时，直接加载 `security_profiles.json` 中固化的 Top-N 规则。每个候选节点必须标注 `origin: "L0"`。
     *   **L1**：项目主语言在 L0 之内，但使用了项目自有的 sink/source wrapper（如 Android Bluetooth 的 `osi_*alloc`、`STREAM_TO_UINT*` 宏，PHP 框架的 `DB\SQL::exec` 等）。由 REQ-18 的 R1.5 阶段识别产出 `extended_sinks.json`，并入候选队列，标注 `origin: "L1"`。
-    *   **L2**：项目包含非预设语言（如 Erlang、Haskell、Cobol）。Agent **必须**利用内置安全知识动态生成该语言的 Top 10 高危漏洞映射（仅限 RCE、SQLi、SSRF、越权、反序列化类别），落盘为 `.audit_results/extended_profile.json`，由主 Agent 复核后才并入候选队列，标注 `origin: "L2"`。
+    *   **L2**：项目包含非预设语言（如 Erlang、Haskell、Cobol）。Agent **必须**利用内置安全知识动态生成该语言的 Top 10 高危漏洞映射（仅限 RCE、SQLi、SSRF、越权、反序列化类别），落盘为 `.audit_results/extended_profile.json`，由主 Agent 复核后才并入候选队列，标注 `origin: "L2"`。Mode B 中由 `run_workflow.js` 对非预设源码扩展执行保守通用高危模式扫描，并写入 `reviewed_by: "main-agent"`。
 *   **强制约束**：L2 fallback 产物必须经主 Agent 显式复核签名（在 `extended_profile.json` 中写 `reviewed_by: "main-agent"` 字段）后才能进入 R3 验证队列。
 
 ### REQ-03: AST 物理工具强制 R0 self-check 与全语言 AST 对齐
-*   **详细描述**：Skill 启动后第一步（R0 阶段）必须运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `total_rules`, `ast_patterns_coverage_pct`, `ast_coverage_threshold_pct`, `ast_coverage_ok`, `ast_gap_by_language`），self-check 校验规则库加载失败或 tree-sitter 不可用（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。全量 15 种预设语言的静态规则须达到 **≥ 95%**（`AST_COVERAGE_THRESHOLD`）的 Tree-Sitter AST S-expression 语法树模式覆盖；self-check 如实输出真实覆盖率与缺口语言清单（`ast_gap_by_language`），低于阈值时置 `ast_coverage_ok=false` 并在 `warning` 字段告警。仅有正则、缺乏 AST S-expression 校验支撑的规则命中时，R1 阶段必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
+*   **详细描述**：Skill 启动后第一步（R0 阶段）必须运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `required_grammar_languages`, `grammar_missing`, `grammar_coverage_ok`, `total_rules`, `ast_patterns_coverage_pct`, `ast_coverage_threshold_pct`, `ast_coverage_ok`, `ast_gap_by_language`），self-check 校验规则库加载失败、tree-sitter 不可用、任一有规则语言 grammar 缺失、AST 覆盖率低于阈值（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。全量 15 种预设语言的静态规则须达到 **≥ 95%**（`AST_COVERAGE_THRESHOLD`）的 Tree-Sitter AST S-expression 语法树模式覆盖；self-check 如实输出真实覆盖率与缺口语言清单（`ast_gap_by_language`），低于阈值时置 `ast_coverage_ok=false` 并失败。仅有正则、缺乏 AST S-expression 校验支撑的规则命中时，R1 阶段必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
-*   **详细描述**：初筛与审计阶段必须物理忽略：未采用驼峰命名、缺失文件注释、非安全场景弱随机数、代码风格违规等规范类问题。同时必须自动识别并过滤第三方压缩/混淆库（文件名含 `.min.`、`vendor/`、`node_modules/`、`third_party/`、`libs/` 等典型路径），匹配行长度超过 1000 字符强制截断并标注 `... [TRUNCATED]` 以防空提示词触发模型安全策略或导致子会话挂起。
+*   **详细描述**：初筛与审计阶段必须物理忽略：未采用驼峰命名、缺失文件注释、非安全场景弱随机数、代码风格违规等规范类问题。同时必须自动识别并过滤第三方压缩/混淆库（文件名含 `.min.`、路径组件为 `vendor/`、`node_modules/`、`third_party/`、`libs/` 等典型路径），匹配行长度超过 1000 字符强制截断并标注 `... [TRUNCATED]` 以防空提示词触发模型安全策略或导致子会话挂起。路径过滤必须按相对路径组件判断，禁止用绝对路径子串匹配，以免工作区名包含 `build` 等词时整库误跳过。
 
 ### REQ-05: 数据流污点与业务逻辑双轨审计
 *   **详细描述**：双轨制审计分流，PROPERTY_CHECK 从 pre-v2 的粗关键字识别升级为模式识别：
@@ -91,17 +91,17 @@
 *   **详细描述**：候选清单必须以状态机形式落盘到 `.audit_results/verify_queue.json`，**绝不允许只在内存中维护**：
     1.  **入队 Schema**：每个候选节点包含规范字段：`{id, origin("L0"/"L1"/"L2"/"R4"), source_file, source_line, sink_type, status("PENDING"/"VERIFIED"), verdict, reachability_type, blocking_point}`。
      2.  **分批并发/串行研判**：按 REQ-01 选定的执行模式分批研判。Mode A' 使用 `tools/batch_verify.py` 调度：`--stage next` 输出下一批任务书 → task 并发验证 → `--stage collect` 写回队列 → 循环直至 `--stage assert` 通过。单批完成后**立即落盘**。
-     2a. **调用链深度门禁**：`--stage collect` 自动验证每个 verdict 的 `call_chain_depth`，若 `< 3` 则自动升级为 `NEEDS_REVIEW` 并追加原因。`--stage assert` 输出平均/最小/最大调用链深度指标，低于阈值报警。
+     2a. **调用链深度门禁**：`--stage collect` 自动验证每个 verdict 的必需字段（`verdict`、`reachability_type`、`call_chain`、`call_chain_depth`、`evidence`）和 `call_chain_depth`。缺字段或类型错误的结果保持 `PENDING` 以便重试；若 `REACHABLE/UNREACHABLE` 的深度 `< 3`，自动升级为 `NEEDS_REVIEW` 并追加原因。`--stage assert` 输出平均/最小/最大调用链深度指标，并对非法 VERIFIED 节点返回非 0。
     3.  **状态机**：`PENDING → VERIFIED → {REACHABLE | UNREACHABLE | NEEDS_REVIEW}`；子智能体返回模糊或拒绝回答时强制 `NEEDS_REVIEW`，不允许默认判定。
     4.  **断点续传**：二次启动读取 `verify_queue.json`，跳过已 `VERIFIED` 的节点，只处理 `PENDING`。
     5.  **Assert 兜底**：报告生成前 `batch_verify.py --stage assert` 必须通过（exit 0），存在 `PENDING` 节点则 `exit(2)` 强制中断。`NEEDS_REVIEW` 节点必须在报告中显式列出。
 
 ### REQ-10: 审计漏斗量化度量 (L0/L1/L2 区分)
-*   **详细描述**：量化公式分母必须为 `(R1 + R1.5 + R4)` 候选总数，分子按来源标记 `origin` 字段：
-    *   **Rule Coverage Rate** = `(R1 + R1.5 + R4) 已验证候选` / `(R1 + R1.5 + R4) 总候选`
+*   **详细描述**：量化公式分母必须为 `(R1 + R1.5 + L2 + R4)` 候选总数，分子按来源标记 `origin` 字段：
+    *   **Rule Coverage Rate** = `(R1 + R1.5 + L2 + R4) 已验证候选` / `(R1 + R1.5 + L2 + R4) 总候选`
     *   **Reachability Rate** = `REACHABLE` / 已验证候选
     *   **Noise Reduction Rate** = `UNREACHABLE` / 已验证候选
-    *   **Sink Discovery Rate** *(新增)* = `R1(L0) 命中` / `(R1 + R1.5 + R4)` 总候选 — 反映 L0 规则库的召回能力。
+    *   **Sink Discovery Rate** *(新增)* = `R1(L0) 命中` / `(R1 + R1.5 + L2 + R4)` 总候选 — 反映 L0 规则库的召回能力。
     *   **False Negative Risk** *(新增)* = `(L1 占比 + R4 REACHABLE 占比)` — 反映规则盲区。
     *   **Origin Breakdown** *(新增)* = 输出 `L0`, `L1`, `L2`, `R4` 的各分类候选统计数。
 *   **强制约束**：明确分母为"已入队候选数"（即进入 verify_queue 的总数），`NEEDS_REVIEW` 计入分母，采样策略与全量指标必须在 JSON 和 Markdown 报告中双输出。

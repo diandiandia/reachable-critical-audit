@@ -30,13 +30,18 @@ const colors = {
     cyan: "\x1b[36m"
 };
 
+const REQUIRED_VERDICT_KEYS = ['verdict', 'reachability_type', 'call_chain', 'call_chain_depth', 'evidence'];
+const VALID_VERDICTS = ['REACHABLE', 'UNREACHABLE', 'NEEDS_REVIEW'];
+const VALID_REACHABILITY_TYPES = ['DIRECT', 'ACROSS_BOUNDARY', 'INDIRECT', null];
+const MIN_CALL_CHAIN_DEPTH = 3;
+
 // ==================== 平台自适应层 ====================
 
 /**
  * 检测当前环境可用的 AI CLI 工具。
  * 优先级: 环境变量 > claude > agy > codex
  */
-function detectAgentCli() {
+function findAgentCli() {
     // 1. 环境变量覆盖
     if (process.env.AGENT_CLI) {
         return process.env.AGENT_CLI;
@@ -49,6 +54,12 @@ function detectAgentCli() {
             return cli;
         } catch (e) { /* not found, try next */ }
     }
+    return null;
+}
+
+function detectAgentCli() {
+    const cli = findAgentCli();
+    if (cli) return cli;
     // 3. 无可用 CLI
     console.error(`${colors.red}[FATAL] 未检测到任何 AI CLI 工具 (claude/agy/codex)。`);
     console.error(`请安装 Claude Code (npm i -g @anthropic-ai/claude-code) 或设置 AGENT_CLI 环境变量。${colors.reset}`);
@@ -194,28 +205,152 @@ function extractVerdict(stdout) {
     return 'NEEDS_REVIEW';
 }
 
+function extractJsonObjectWithKey(stdout, key) {
+    if (typeof stdout !== 'string') return null;
+    const keyIndex = stdout.indexOf(`"${key}"`);
+    if (keyIndex < 0) return null;
+
+    const start = stdout.lastIndexOf('{', keyIndex);
+    const end = stdout.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+
+    try {
+        return JSON.parse(stdout.slice(start, end + 1));
+    } catch (e) {
+        return null;
+    }
+}
+
+function normalizeVerdictValue(value) {
+    if (typeof value !== 'string') return null;
+    const upper = value.toUpperCase();
+    return VALID_VERDICTS.includes(upper) ? upper : null;
+}
+
+function extractVerdictResult(stdout) {
+    const parsed = extractJsonObjectWithKey(stdout, 'verdict');
+    const verdict = normalizeVerdictValue(parsed && parsed.verdict) || extractVerdict(stdout);
+    const callChain = Array.isArray(parsed && parsed.call_chain) ? parsed.call_chain : [];
+
+    return {
+        structured: !!parsed,
+        raw_keys: parsed ? Object.keys(parsed) : [],
+        verdict,
+        reachability_type: parsed && parsed.reachability_type ? parsed.reachability_type : null,
+        call_chain: callChain,
+        call_chain_depth: Number.isInteger(parsed && parsed.call_chain_depth) ? parsed.call_chain_depth : callChain.length,
+        blocking_point: parsed && parsed.blocking_point ? parsed.blocking_point : null,
+        path_count: Number.isInteger(parsed && parsed.path_count) ? parsed.path_count : 0,
+        paths_analyzed: Array.isArray(parsed && parsed.paths_analyzed) ? parsed.paths_analyzed : [],
+        evidence: parsed && parsed.evidence ? String(parsed.evidence) : String(stdout || '').slice(-2000),
+        cwe: parsed && parsed.cwe ? parsed.cwe : null
+    };
+}
+
+function normalizeVerifierResult(result) {
+    const issues = [];
+    if (!result.structured) {
+        issues.push('verifier did not return the required JSON object');
+    }
+
+    const missing = REQUIRED_VERDICT_KEYS.filter(k => !result.raw_keys.includes(k));
+    if (missing.length) {
+        issues.push(`missing required keys: ${missing.join(', ')}`);
+    }
+
+    if (!VALID_VERDICTS.includes(result.verdict)) {
+        issues.push(`invalid verdict: ${result.verdict}`);
+    }
+
+    if (!VALID_REACHABILITY_TYPES.includes(result.reachability_type)) {
+        issues.push(`invalid reachability_type: ${result.reachability_type}`);
+    }
+
+    if (!Array.isArray(result.call_chain)) {
+        issues.push('call_chain must be an array');
+        result.call_chain = [];
+    }
+
+    if (!Number.isInteger(result.call_chain_depth)) {
+        issues.push('call_chain_depth must be an integer');
+        result.call_chain_depth = result.call_chain.length;
+    }
+
+    if (result.verdict !== 'NEEDS_REVIEW' && result.call_chain_depth < MIN_CALL_CHAIN_DEPTH) {
+        issues.push(`call_chain_depth=${result.call_chain_depth} < ${MIN_CALL_CHAIN_DEPTH}`);
+    }
+
+    if (issues.length) {
+        result.verdict = 'NEEDS_REVIEW';
+        result.reachability_type = result.reachability_type || null;
+        result.evidence = `${result.evidence || ''}\n[AUTO NEEDS_REVIEW] ${issues.join('; ')}`.trim();
+    }
+    return result;
+}
+
+function normalizeQueueState(candidates) {
+    candidates.forEach(c => {
+        const legacyVerdict = normalizeVerdictValue(c.status);
+        if (!legacyVerdict) return;
+        if (!normalizeVerdictValue(c.verdict)) {
+            c.evidence = c.verdict || c.evidence || '';
+            c.verdict = legacyVerdict;
+        }
+        c.status = 'VERIFIED';
+    });
+}
+
 /**
  * 从 R4 Subagent stdout 中提取假说判定。
  */
-function extractHypothesisVerdict(stdout) {
-    if (typeof stdout !== 'string') return { status: 'NEEDS_REVIEW', summary: 'Non-string output' };
-
-    const confirmedMatch = stdout.match(/HYPOTHESIS_CONFIRMED:\s*([^\r\n]+)/);
-    if (confirmedMatch) {
-        return { status: 'REACHABLE', verdict: 'confirmed', summary: confirmedMatch[1].trim() };
+function extractHypothesisVerdict(stdout, hypothesis) {
+    const parsed = extractJsonObjectWithKey(stdout, 'hypothesis_id');
+    if (!parsed || parsed.hypothesis_id !== hypothesis.id ||
+        !['confirmed', 'reviewed_clean', 'not_applicable'].includes(parsed.verdict)) {
+        return {
+            hypothesis_id: hypothesis.id,
+            hypothesis: hypothesis.title,
+            origin: 'R4',
+            status: 'VERIFIED',
+            verdict: 'NEEDS_REVIEW',
+            hypothesis_verdict: 'needs_review',
+            cwe: hypothesis.cwe,
+            findings: [],
+            coverage_note: 'R4 子任务未返回符合 schema 的三选一 JSON 结论。',
+            evidence: typeof stdout === 'string' ? stdout.slice(-2000) : String(stdout || '')
+        };
     }
 
-    const cleanMatch = stdout.match(/HYPOTHESIS_CLEAN:\s*([^\r\n]+)/);
-    if (cleanMatch) {
-        return { status: 'UNREACHABLE', verdict: 'reviewed_clean', summary: cleanMatch[1].trim() };
-    }
-
-    return { status: 'NEEDS_REVIEW', verdict: 'needs_review', summary: '未明确输出假说结论，需要人工复核。' };
+    return {
+        hypothesis_id: hypothesis.id,
+        hypothesis: hypothesis.title,
+        origin: 'R4',
+        status: 'VERIFIED',
+        verdict: parsed.verdict === 'confirmed' ? 'REACHABLE' : 'UNREACHABLE',
+        hypothesis_verdict: parsed.verdict,
+        cwe: Array.isArray(parsed.cwe) ? parsed.cwe : hypothesis.cwe,
+        findings: Array.isArray(parsed.findings) ? parsed.findings : [],
+        coverage_note: parsed.coverage_note || '',
+        evidence: typeof stdout === 'string' ? stdout.slice(-2000) : String(stdout || '')
+    };
 }
 
 // ==================== Prompt 模板（结构化输出要求）====================
 
 function buildVerifyPrompt(cand) {
+    const outputFormat = `## 输出格式（强制 JSON，不要其他文字）
+{
+  "verdict": "REACHABLE | UNREACHABLE | NEEDS_REVIEW",
+  "reachability_type": "DIRECT | ACROSS_BOUNDARY | INDIRECT",
+  "call_chain": ["file:line:function", "file:line:function", "file:line:function"],
+  "call_chain_depth": 3,
+  "blocking_point": "file:line / null",
+  "path_count": 1,
+  "paths_analyzed": ["path description"],
+  "evidence": "包含调用链和每层数据流路径分析的说明",
+  "cwe": ["CWE-xxx"]
+}`;
+
     if (cand.type === "PROPERTY_CHECK") {
         return `你是一个 vulnerability-verifier 子智能体。请对以下代码候选点进行【业务逻辑越权审计】。
 
@@ -231,12 +366,9 @@ function buildVerifyPrompt(cand) {
 1. 深入阅读该敏感写操作方法体，并回溯其上游控制器方法（至少 3 层调用链）。
 2. 重点审查代码中是否缺失了属主关系比对。
 3. 检查是否有权限拦截装饰器。
+4. 无法明确判定时输出 verdict=NEEDS_REVIEW。
 
-【强制输出格式】在回复的最后一行，输出以下标记之一（不要遗漏）：
-VERDICT: REACHABLE
-或
-VERDICT: UNREACHABLE
-并提供分析证据。`;
+${outputFormat}`;
     }
 
     const sources = (cand.sources_regex && cand.sources_regex.length > 0)
@@ -257,33 +389,41 @@ VERDICT: UNREACHABLE
 1. 追溯调用该目标函数代码的上游函数和控制器入口（至少 3 层调用链）。
 2. 检查这些上游调用链中的参数，是否直接或间接地被外部可控输入（例如 ${sources} 等）所控制。
 3. 校验路径上是否有健全的类型转换、白名单过滤或编码转义处理将外部控制关系隔断。
+4. 无法明确判定时输出 verdict=NEEDS_REVIEW。
 
-【强制输出格式】在回复的最后一行，输出以下标记之一（不要遗漏）：
-VERDICT: REACHABLE
-或
-VERDICT: UNREACHABLE
-并给出完整的分析证据链。`;
+${outputFormat}`;
 }
 
-function buildR4Prompt(domainProfile, filePath) {
-    return `你是一个 business-logic-verifier 子智能体。请对项目 [${domainProfile.domainName}] 中的高危业务模块进行【6类固化业务逻辑假说深钻】。
+function buildR4Prompt(domainProfile, hypothesis, anchors, workspacePath) {
+    const anchorText = anchors.length ? anchors.join('\n- ') : '全项目（未发现文件名锚点，仍需按假说搜索）';
+    return `你是一个 business-logic-verifier 子智能体。请对项目 [${domainProfile.domainName}] 做固化业务逻辑假说深钻。
 
-目标文件路径：${filePath}
+项目路径：${workspacePath}
 项目领域背景：${domainProfile.summary}
+假说 ID：${hypothesis.id}
+假说名称：${hypothesis.title}
+相关 CWE：${hypothesis.cwe.join(', ')}
+建议优先检查锚点：
+- ${anchorText}
 
-请结合代码结构、控制流与状态机设计，回应以下 6 类固定假说：
-1. CWE-789 远端控制 allocation size
-2. CWE-125/787 远端控制解引用长度/索引
-3. CWE-416 异步对象生命周期竞态
-4. 跨进程信任边界破坏
-5. Exported component 鉴权缺失
-6. 多租户/owner 比对缺失
+请不限于锚点，在全项目搜索该假说的相关模式。若坐实漏洞，给出完整证据；若审查无问题，说明覆盖范围；若该项目不适用，说明理由。
 
-必须为每个适用的假说给出明确结论：confirmed | reviewed_clean | not_applicable。
-
-【强制输出格式】
-如果确认存在漏洞: HYPOTHESIS_CONFIRMED: [假说名称] - [简短说明]
-如果审查无问题:   HYPOTHESIS_CLEAN: [假说名称] - [简短说明]`;
+输出格式（强制 JSON，不要其他文字）：
+{
+  "hypothesis_id": "${hypothesis.id}",
+  "verdict": "confirmed | reviewed_clean | not_applicable",
+  "cwe": ${JSON.stringify(hypothesis.cwe)},
+  "findings": [
+    {
+      "title": "...",
+      "severity": "Critical | High | Medium | Low",
+      "call_chain": ["file:line", "..."],
+      "evidence": "...",
+      "fix": "..."
+    }
+  ],
+  "coverage_note": "若 reviewed_clean，说明审查范围；若 not_applicable，说明理由"
+}`;
 }
 
 // ==================== R1.5 框架感知扩展 (REQ-18, 始终执行) ====================
@@ -299,6 +439,15 @@ const R15_EXT_LANG = {
 };
 const R15_IGNORE_DIRS = ['node_modules', '.git', '.audit_results', 'build', 'target',
     'dist', 'vendor', 'third_party', 'libs', 'test', 'tests'];
+const L2_NON_SOURCE_EXTS = new Set([
+    '', '.md', '.txt', '.json', '.lock', '.yaml', '.yml', '.toml', '.xml',
+    '.html', '.css', '.csv', '.tsv', '.svg', '.png', '.jpg', '.jpeg', '.gif',
+    '.pdf', '.zip', '.gz', '.tar', '.ico', '.map'
+]);
+
+function isIgnoredDirName(name) {
+    return R15_IGNORE_DIRS.includes(name);
+}
 
 /** 统计项目各语言源文件数，返回按文件数降序的语言列表。 */
 function detectLanguages(workspacePath) {
@@ -312,7 +461,7 @@ function detectLanguages(workspacePath) {
             let stat;
             try { stat = fs.statSync(full); } catch (e) { continue; }
             if (stat.isDirectory()) {
-                if (!R15_IGNORE_DIRS.includes(file)) walk(full, depth + 1);
+                if (!isIgnoredDirName(file)) walk(full, depth + 1);
             } else if (!file.includes('.min.')) {
                 const lang = R15_EXT_LANG[path.extname(file).toLowerCase()];
                 if (lang) counts[lang] = (counts[lang] || 0) + 1;
@@ -322,6 +471,154 @@ function detectLanguages(workspacePath) {
     walk(workspacePath, 0);
     const langs = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
     return { langs, counts };
+}
+
+const L2_GENERIC_RULES = [
+    {
+        cwe_id: 'CWE-78',
+        category: 'CommandExecution',
+        priority: 0,
+        regex: /\b(os:cmd|system|popen|exec|spawn|open_port|Process\.start)\b/,
+    },
+    {
+        cwe_id: 'CWE-94',
+        category: 'CodeExecution',
+        priority: 0,
+        regex: /\b(eval|compile|load_string|Code\.eval|erl_eval)\b/,
+    },
+    {
+        cwe_id: 'CWE-89',
+        category: 'SqlInjection',
+        priority: 0,
+        regex: /\b(query|execute|rawQuery|execSQL)\b.*(\+|<<|\#\{|%\{|format)/,
+    },
+    {
+        cwe_id: 'CWE-502',
+        category: 'Deserialization',
+        priority: 0,
+        regex: /\b(unserialize|deserialize|binary_to_term|pickle|marshal|readObject)\b/,
+    },
+    {
+        cwe_id: 'CWE-918',
+        category: 'Ssrf',
+        priority: 0,
+        regex: /\b(httpc:request|hackney:request|request|get_url|fetch)\b/,
+    },
+];
+
+const R4_HYPOTHESES = [
+    { id: 'H-1', title: '远端控制 allocation size', cwe: ['CWE-789'] },
+    { id: 'H-2', title: '远端控制解引用长度/索引', cwe: ['CWE-125', 'CWE-787'] },
+    { id: 'H-3', title: '异步对象生命周期竞态', cwe: ['CWE-416'] },
+    { id: 'H-4', title: '跨进程信任边界破坏', cwe: ['CWE-20', 'CWE-89', 'CWE-78'] },
+    { id: 'H-5', title: 'Exported component 鉴权缺失', cwe: ['CWE-862', 'CWE-926'] },
+    { id: 'H-6', title: '多租户/owner 比对缺失', cwe: ['CWE-639', 'CWE-285'] },
+];
+
+function collectUnknownSourceFiles(workspacePath) {
+    const files = [];
+    const extCounts = {};
+    function walk(dir, depth) {
+        if (depth > 8) return;
+        let list;
+        try { list = fs.readdirSync(dir); } catch (e) { return; }
+        for (const file of list) {
+            const full = path.join(dir, file);
+            let stat;
+            try { stat = fs.statSync(full); } catch (e) { continue; }
+            if (stat.isDirectory()) {
+                if (!isIgnoredDirName(file)) walk(full, depth + 1);
+                continue;
+            }
+            if (file.includes('.min.')) continue;
+            const ext = path.extname(file).toLowerCase();
+            if (R15_EXT_LANG[ext] || L2_NON_SOURCE_EXTS.has(ext)) continue;
+            files.push(full);
+            extCounts[ext] = (extCounts[ext] || 0) + 1;
+        }
+    }
+    walk(workspacePath, 0);
+    return { files, extCounts };
+}
+
+function runL2Fallback(workspacePath, queue, outputDir) {
+    const { files, extCounts } = collectUnknownSourceFiles(workspacePath);
+    if (files.length === 0) return 0;
+
+    const profile = {
+        schema_version: '2.0',
+        origin: 'L2',
+        reviewed_by: 'main-agent',
+        generated_at: new Date().toISOString(),
+        unknown_extensions: Object.entries(extCounts)
+            .map(([ext, count]) => ({ ext, count }))
+            .sort((a, b) => b.count - a.count),
+        rules: L2_GENERIC_RULES.map(r => ({
+            cwe_id: r.cwe_id,
+            category: r.category,
+            priority: r.priority,
+            pattern: r.regex.source
+        }))
+    };
+    fs.writeFileSync(path.join(outputDir, 'extended_profile.json'),
+        JSON.stringify(profile, null, 2), 'utf8');
+
+    let maxN = 0;
+    const existingKeys = new Set();
+    queue.forEach(c => {
+        const cid = c.id || '';
+        if (cid.startsWith('CAND-')) {
+            const n = parseInt(cid.split('-')[1], 10);
+            if (!isNaN(n)) maxN = Math.max(maxN, n);
+        }
+        existingKeys.add(`${c.file_path}|${c.line_number || c.source_line}|${c.cwe_id || c.sink_type}|${c.source_pattern || ''}`);
+    });
+
+    let added = 0;
+    for (const filePath of files) {
+        let content;
+        try {
+            content = fs.readFileSync(filePath, 'utf8');
+        } catch (e) {
+            continue;
+        }
+        const rel = path.relative(workspacePath, filePath);
+        const lines = content.split(/\r?\n/);
+        lines.forEach((line, idx) => {
+            for (const rule of L2_GENERIC_RULES) {
+                if (!rule.regex.test(line)) continue;
+                const key = `${rel}|${idx + 1}|${rule.cwe_id}|${rule.category}`;
+                if (existingKeys.has(key)) break;
+                existingKeys.add(key);
+                maxN += 1;
+                const sinkContent = line.trim().slice(0, 1000);
+                queue.push({
+                    id: `CAND-${String(maxN).padStart(3, '0')}`,
+                    origin: 'L2',
+                    language: path.extname(filePath).slice(1) || 'unknown',
+                    file_path: rel,
+                    source_file: rel,
+                    line_number: idx + 1,
+                    source_line: idx + 1,
+                    cwe_id: rule.cwe_id,
+                    sink_type: rule.cwe_id,
+                    category: rule.category,
+                    source_pattern: rule.regex.source,
+                    type: 'TAINT_ANALYSIS',
+                    sink_content: sinkContent,
+                    priority: rule.priority,
+                    status: 'PENDING',
+                    verdict: null,
+                    reachability_type: null,
+                    blocking_point: null
+                });
+                added += 1;
+                break;
+            }
+        });
+    }
+    console.log(`${colors.green}[L2] 非预设语言 fallback 已生成 extended_profile.json，并入 ${added} 个候选${colors.reset}`);
+    return added;
 }
 
 /** 构建 framework-sink-extractor 任务书 (与 batch_verify._build_r15_prompt 对齐)。 */
@@ -411,6 +708,7 @@ async function runR15FrameworkExtraction(workspacePath, queue, outputDir) {
             console.log(`${colors.green}  [R1.5] ${lang}: 发现 ${sinks.length} 个 wrapper sink${colors.reset}`);
         } catch (err) {
             console.error(`${colors.red}  [R1.5] ${lang} 扫描异常: ${err.message.slice(0, 100)}${colors.reset}`);
+            throw new Error(`R1.5 ${lang} framework-sink-extractor failed: ${err.message}`);
         }
     }
 
@@ -466,7 +764,15 @@ async function runR15FrameworkExtraction(workspacePath, queue, outputDir) {
 // ==================== --check-availability 子命令 ====================
 
 function checkAvailability() {
-    const cliName = detectAgentCli();
+    const cliName = findAgentCli();
+    if (!cliName) {
+        console.log(JSON.stringify({
+            mode: 'AGENT_NATIVE_FALLBACK',
+            reason: 'No AI CLI found in PATH (claude/agy/codex)',
+            instruction: '主 Agent 接管'
+        }));
+        process.exit(0);
+    }
     const versionCmd = cliName === 'claude' ? '--version' : '--version';
     let reported = false;
 
@@ -526,6 +832,14 @@ async function executeWorkflow(workspacePath) {
     const queuePath = path.join(outputDir, 'verify_queue.json');
     const reportPath = path.join(outputDir, 'reachable_vulnerabilities_report.json');
 
+    console.log(`${colors.blue}[*] R0: AST 工具自检...${colors.reset}`);
+    try {
+        execSync(`python3 "${scannerPath}" --self-check`, { stdio: 'inherit' });
+    } catch (error) {
+        console.error(`${colors.red}[FATAL] R0 self-check 失败，流程终止。请先安装 tree-sitter 依赖并确认规则库可加载。${colors.reset}`);
+        process.exit(1);
+    }
+
     // 写入执行模式记录
     fs.writeFileSync(path.join(outputDir, 'execution_mode.json'), JSON.stringify({
         mode: `CLI_${cliName.toUpperCase()}`,
@@ -540,11 +854,15 @@ async function executeWorkflow(workspacePath) {
     if (fs.existsSync(queuePath)) {
         console.log(`${colors.yellow}[*] 发现已存在的队列文件，载入断点续传...${colors.reset}`);
         queueObj = loadQueue(queuePath);
+        normalizeQueueState(queueObj.candidates);
+        saveQueue(queuePath, queueObj.raw, queueObj.candidates);
     } else {
         console.log(`${colors.blue}[*] 未发现历史队列，启动 AST 扫描...${colors.reset}`);
         try {
             execSync(`python3 "${scannerPath}" "${workspacePath}" "${outputDir}"`, { stdio: 'inherit' });
             queueObj = loadQueue(queuePath);
+            normalizeQueueState(queueObj.candidates);
+            saveQueue(queuePath, queueObj.raw, queueObj.candidates);
         } catch (error) {
             console.error(`${colors.red}[Error] AST 扫描器执行失败. 流程终止。${colors.reset}`);
             process.exit(1);
@@ -567,19 +885,29 @@ async function executeWorkflow(workspacePath) {
                 saveQueue(queuePath, queueObj.raw, queue);
             }
         } catch (err) {
-            console.error(`${colors.red}[R1.5] 扩展阶段异常(不阻断主流程): ${err.message.slice(0, 120)}${colors.reset}`);
+            saveQueue(queuePath, queueObj.raw, queue);
+            console.error(`${colors.red}[FATAL] R1.5 扩展阶段失败，流程终止: ${err.message.slice(0, 160)}${colors.reset}`);
+            process.exit(1);
         }
     } else {
         console.log(`${colors.yellow}[R1.5] extended_sinks.json 已存在, 跳过重复扫描(断点续传)。${colors.reset}`);
+    }
+
+    const extendedProfilePath = path.join(outputDir, 'extended_profile.json');
+    if (!fs.existsSync(extendedProfilePath)) {
+        const l2Added = runL2Fallback(workspacePath, queue, outputDir);
+        if (l2Added > 0) {
+            saveQueue(queuePath, queueObj.raw, queue);
+        }
+    } else {
+        console.log(`${colors.yellow}[L2] extended_profile.json 已存在, 跳过重复扫描(断点续传)。${colors.reset}`);
     }
 
     const pendingCandidates = queue.filter(c => c.status === "PENDING");
     console.log(`${colors.green}[+] 队列: 总计 ${queue.length} 项, PENDING ${pendingCandidates.length} 项, 已完成 ${queue.length - pendingCandidates.length} 项${colors.reset}`);
 
     if (pendingCandidates.length === 0) {
-        console.log(`${colors.green}[+] 所有候选点均已验证，直接进行报告汇总。${colors.reset}`);
-        compileReport(queue, reportPath, [], workspacePath);
-        return;
+        console.log(`${colors.green}[+] 所有 R1/R1.5/L2 候选点均已验证，继续执行 R4。${colors.reset}`);
     }
 
     // --- 阶段 2: 批处理并发审计循环 ---
@@ -608,11 +936,20 @@ async function executeWorkflow(workspacePath) {
 
             try {
                 const stdout = await runAgentCmd(prompt);
-                const status = extractVerdict(stdout);
+                const result = normalizeVerifierResult(extractVerdictResult(stdout));
+                const verdict = result.verdict;
 
                 // 写回结果
-                queue[index].status = status;
-                queue[index].verdict = typeof stdout === 'string' ? stdout.slice(-2000) : String(stdout);
+                queue[index].status = 'VERIFIED';
+                queue[index].verdict = verdict;
+                queue[index].reachability_type = result.reachability_type;
+                queue[index].call_chain = result.call_chain;
+                queue[index].call_chain_depth = result.call_chain_depth;
+                queue[index].blocking_point = result.blocking_point;
+                queue[index].path_count = result.path_count;
+                queue[index].paths_analyzed = result.paths_analyzed;
+                queue[index].evidence = result.evidence;
+                if (result.cwe) queue[index].cwe = result.cwe;
                 queue[index].verified_at = new Date().toISOString();
 
                 // 传播相同位置+CWE 的判定结果
@@ -622,24 +959,30 @@ async function executeWorkflow(workspacePath) {
                         item.line_number === cand.line_number &&
                         item.cwe_id === cand.cwe_id &&
                         item.status === "PENDING") {
-                        item.status = status;
-                        item.verdict = `[Propagated from ${cand.id}]`;
+                        item.status = 'VERIFIED';
+                        item.verdict = verdict;
+                        item.reachability_type = result.reachability_type;
+                        item.call_chain = result.call_chain;
+                        item.call_chain_depth = result.call_chain_depth;
+                        item.blocking_point = result.blocking_point;
+                        item.path_count = result.path_count;
+                        item.paths_analyzed = result.paths_analyzed;
+                        item.evidence = `[Propagated from ${cand.id}] ${result.evidence || ''}`;
                         item.verified_at = new Date().toISOString();
                         propagated++;
                     }
                 });
 
-                const statusIcon = status === 'REACHABLE' ? `${colors.red}🔴` :
-                                   status === 'UNREACHABLE' ? `${colors.green}✅` :
+                const statusIcon = verdict === 'REACHABLE' ? `${colors.red}🔴` :
+                                   verdict === 'UNREACHABLE' ? `${colors.green}✅` :
                                    `${colors.yellow}⚠️`;
                 const propMsg = propagated > 0 ? ` (+${propagated} propagated)` : '';
-                console.log(`  ${statusIcon} [${cand.id}] → ${status}${propMsg}${colors.reset}`);
+                console.log(`  ${statusIcon} [${cand.id}] → ${verdict}${propMsg}${colors.reset}`);
 
             } catch (err) {
                 console.error(`${colors.red}  ❌ [${cand.id}] 异常: ${err.message.slice(0, 120)}${colors.reset}`);
-                queue[index].status = 'NEEDS_REVIEW';
-                queue[index].verdict = `ERROR: ${err.message.slice(0, 500)}`;
-                queue[index].verified_at = new Date().toISOString();
+                saveQueue(queuePath, queueObj.raw, queue);
+                throw new Error(`R3 verifier failed for ${cand.id}: ${err.message}`);
             }
 
             totalVerified++;
@@ -668,9 +1011,9 @@ async function executeWorkflow(workspacePath) {
 
     const stats = {
         total: finalQueue.length,
-        reachable: finalQueue.filter(c => c.status === 'REACHABLE').length,
-        unreachable: finalQueue.filter(c => c.status === 'UNREACHABLE').length,
-        needs_review: finalQueue.filter(c => c.status === 'NEEDS_REVIEW').length,
+        reachable: finalQueue.filter(c => c.verdict === 'REACHABLE').length,
+        unreachable: finalQueue.filter(c => c.verdict === 'UNREACHABLE').length,
+        needs_review: finalQueue.filter(c => c.verdict === 'NEEDS_REVIEW').length,
     };
     console.log(`${colors.green}[✓] Assert 通过: 全部 ${stats.total} 项已验证 (REACHABLE=${stats.reachable}, UNREACHABLE=${stats.unreachable}, NEEDS_REVIEW=${stats.needs_review})${colors.reset}`);
 
@@ -684,53 +1027,58 @@ async function executeWorkflow(workspacePath) {
     console.log(`${colors.cyan}[R4] 项目域: ${domainProfile.domainName}${colors.reset}`);
 
     const highRiskFiles = findHighRiskModules(workspacePath);
-    const autonomousFindings = [];
-
-    if (highRiskFiles.length === 0) {
-        console.log(`${colors.green}[R4] 未发现典型高危业务逻辑模块，跳过。${colors.reset}`);
+    const anchors = highRiskFiles.length ? highRiskFiles : [];
+    if (anchors.length) {
+        console.log(`${colors.blue}[R4] 发现 ${anchors.length} 个高危锚点:${colors.reset}`);
+        anchors.forEach(f => console.log(`  - ${f}`));
     } else {
-        console.log(`${colors.blue}[R4] 发现 ${highRiskFiles.length} 个高危锚点:${colors.reset}`);
-        highRiskFiles.forEach(f => console.log(`  - ${f}`));
+        console.log(`${colors.yellow}[R4] 未发现文件名锚点，仍按 6 类固化假说做全项目审查。${colors.reset}`);
+    }
 
-        const autonomousBatchSize = 3;
-        for (let j = 0; j < highRiskFiles.length; j += autonomousBatchSize) {
-            const batchFiles = highRiskFiles.slice(j, j + autonomousBatchSize);
-            await Promise.all(batchFiles.map(async (filePath) => {
-                console.log(`${colors.blue}  [R4 Subagent] 深钻: ${filePath}...${colors.reset}`);
+    const queueForR4 = loadQueue(queuePath);
+    const queueWrapper = queueForR4.raw || { schema_version: "2.0", candidates: queueForR4.candidates };
+    let autonomousFindings = Array.isArray(queueWrapper.r4_findings) ? queueWrapper.r4_findings : [];
+    const doneHypotheses = new Set(autonomousFindings.map(f => f.hypothesis_id));
 
-                const prompt = buildR4Prompt(domainProfile, filePath);
+    if (R4_HYPOTHESES.every(h => doneHypotheses.has(h.id))) {
+        console.log(`${colors.yellow}[R4] r4_findings 已存在且覆盖 H1-H6，跳过重复深钻。${colors.reset}`);
+    } else {
+        const r4BatchSize = 3;
+        const pendingHypotheses = R4_HYPOTHESES.filter(h => !doneHypotheses.has(h.id));
+        for (let j = 0; j < pendingHypotheses.length; j += r4BatchSize) {
+            const batchHypotheses = pendingHypotheses.slice(j, j + r4BatchSize);
+            await Promise.all(batchHypotheses.map(async (hypothesis) => {
+                console.log(`${colors.blue}  [R4 Subagent] ${hypothesis.id}: ${hypothesis.title}...${colors.reset}`);
+                const prompt = buildR4Prompt(domainProfile, hypothesis, anchors, workspacePath);
 
                 try {
                     const stdout = await runAgentCmd(prompt);
-                    const result = extractHypothesisVerdict(stdout);
-
-                    const icon = result.status === 'REACHABLE' ? `${colors.red}🔴` : `${colors.green}✅`;
-                    console.log(`  ${icon} [R4] ${filePath} → ${result.status}: ${result.summary}${colors.reset}`);
-
-                    autonomousFindings.push({
-                        file_path: filePath,
-                        origin: "R4",
-                        status: result.status,
-                        verdict: result.verdict || result.status.toLowerCase(),
-                        summary: result.summary,
-                        evidence: typeof stdout === 'string' ? stdout.slice(-2000) : String(stdout)
-                    });
+                    const result = extractHypothesisVerdict(stdout, hypothesis);
+                    const icon = result.verdict === 'REACHABLE' ? `${colors.red}🔴` :
+                                 result.verdict === 'NEEDS_REVIEW' ? `${colors.yellow}⚠️` :
+                                 `${colors.green}✅`;
+                    console.log(`  ${icon} [R4] ${hypothesis.id} → ${result.hypothesis_verdict}${colors.reset}`);
+                    autonomousFindings.push(result);
                 } catch (err) {
-                    console.error(`${colors.red}  ❌ [R4] ${filePath} 异常: ${err.message.slice(0, 120)}${colors.reset}`);
-                    autonomousFindings.push({
-                        file_path: filePath,
-                        origin: "R4",
-                        status: 'NEEDS_REVIEW',
-                        verdict: 'execution_failed',
-                        summary: `ERROR: ${err.message.slice(0, 200)}`,
-                        evidence: `ERROR: ${err.message}`
-                    });
+                    console.error(`${colors.red}  ❌ [R4] ${hypothesis.id} 异常: ${err.message.slice(0, 120)}${colors.reset}`);
+                    throw new Error(`R4 verifier failed for ${hypothesis.id}: ${err.message}`);
                 }
             }));
+            queueWrapper.r4_findings = autonomousFindings;
+            fs.writeFileSync(queuePath, JSON.stringify(queueWrapper, null, 2), 'utf8');
         }
+    }
 
-        const autonomousPath = path.join(outputDir, 'autonomous_logical_findings.json');
-        fs.writeFileSync(autonomousPath, JSON.stringify(autonomousFindings, null, 2), 'utf8');
+    queueWrapper.r4_findings = autonomousFindings;
+    fs.writeFileSync(queuePath, JSON.stringify(queueWrapper, null, 2), 'utf8');
+    const autonomousPath = path.join(outputDir, 'autonomous_logical_findings.json');
+    fs.writeFileSync(autonomousPath, JSON.stringify(autonomousFindings, null, 2), 'utf8');
+
+    const completedR4 = new Set(autonomousFindings.map(f => f.hypothesis_id));
+    const missingR4 = R4_HYPOTHESES.filter(h => !completedR4.has(h.id));
+    if (missingR4.length > 0) {
+        console.error(`${colors.red}[CRITICAL] R4 完整性校验失败，缺少假说: ${missingR4.map(h => h.id).join(', ')}${colors.reset}`);
+        process.exit(2);
     }
 
     compileReport(finalQueue, reportPath, autonomousFindings, workspacePath);
@@ -822,18 +1170,21 @@ function findHighRiskModules(workspacePath) {
 // ==================== 报告生成 ====================
 
 function compileReport(queue, reportJsonPath, autonomousFindings = [], workspacePath = '.') {
-    const reachable = queue.filter(c => c.status === 'REACHABLE');
-    const unreachable = queue.filter(c => c.status === 'UNREACHABLE');
-    const needsReview = queue.filter(c => c.status === 'NEEDS_REVIEW');
+    const reachable = queue.filter(c => c.verdict === 'REACHABLE');
+    const unreachable = queue.filter(c => c.verdict === 'UNREACHABLE');
+    const needsReview = queue.filter(c => c.verdict === 'NEEDS_REVIEW');
+    const r4Reachable = autonomousFindings.filter(f => f.verdict === 'REACHABLE');
+    const r4Unreachable = autonomousFindings.filter(f => f.verdict === 'UNREACHABLE');
+    const r4NeedsReview = autonomousFindings.filter(f => f.verdict === 'NEEDS_REVIEW');
 
-    const total = queue.length;
-    const verifiedTotal = reachable.length + unreachable.length;
+    const total = queue.length + autonomousFindings.length;
+    const verifiedTotal = queue.filter(c => c.status === 'VERIFIED').length +
+        autonomousFindings.filter(f => f.status === 'VERIFIED').length;
 
     const l0Count = queue.filter(c => (c.origin || 'L0') === 'L0').length;
     const l1Count = queue.filter(c => c.origin === 'L1').length;
     const l2Count = queue.filter(c => c.origin === 'L2').length;
-    const r4Count = queue.filter(c => c.origin === 'R4').length + autonomousFindings.length;
-    const r4Reachable = autonomousFindings.filter(f => f.status === 'REACHABLE').length;
+    const r4Count = autonomousFindings.length;
 
     const pct = (n, d) => d > 0 ? ((n / d) * 100).toFixed(2) : "0.00";
 
@@ -846,14 +1197,14 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
         quantified_metrics: {
             total_candidates: total,
             verified: verifiedTotal,
-            reachable: reachable.length,
-            unreachable: unreachable.length,
-            needs_review: needsReview.length,
+            reachable: reachable.length + r4Reachable.length,
+            unreachable: unreachable.length + r4Unreachable.length,
+            needs_review: needsReview.length + r4NeedsReview.length,
             rule_coverage_rate_pct: `${pct(verifiedTotal, total)}%`,
-            reachability_rate_pct: `${pct(reachable.length, verifiedTotal)}%`,
-            noise_reduction_rate_pct: `${pct(unreachable.length, verifiedTotal)}%`,
+            reachability_rate_pct: `${pct(reachable.length + r4Reachable.length, verifiedTotal)}%`,
+            noise_reduction_rate_pct: `${pct(unreachable.length + r4Unreachable.length, verifiedTotal)}%`,
             sink_discovery_rate_pct: `${pct(l0Count, total)}%`,
-            false_negative_risk_pct: `${pct(l1Count + r4Reachable, total)}%`,
+            false_negative_risk_pct: `${pct(l1Count + r4Reachable.length, total)}%`,
             origin_breakdown: { L0: l0Count, L1: l1Count, L2: l2Count, R4: r4Count }
         },
         reachable_vulnerabilities: reachable.map(c => ({
@@ -862,7 +1213,7 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
             source_file: c.source_file || c.file_path,
             source_line: c.source_line || c.line_number,
             reachability_type: c.reachability_type || 'DIRECT',
-            sink_content: c.sink_content, evidence: c.verdict
+            sink_content: c.sink_content, evidence: c.evidence || c.verdict
         })),
         needs_review: needsReview.map(c => ({
             id: c.id, origin: c.origin || 'L0',
@@ -870,11 +1221,19 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
             source_line: c.source_line || c.line_number,
             sink_type: c.sink_type || c.cwe_id,
             blocking_point: c.blocking_point || null,
-            reason: c.verdict || "研判拒绝或返回模糊"
+            reason: c.evidence || "研判拒绝或返回模糊"
         })),
         autonomous_findings: autonomousFindings.map(f => ({
-            file_path: f.file_path, origin: "R4", status: f.status,
-            summary: f.summary, evidence: f.evidence
+            hypothesis_id: f.hypothesis_id,
+            hypothesis: f.hypothesis,
+            origin: "R4",
+            status: f.status,
+            verdict: f.verdict,
+            hypothesis_verdict: f.hypothesis_verdict,
+            cwe: f.cwe,
+            findings: f.findings,
+            coverage_note: f.coverage_note,
+            evidence: f.evidence
         }))
     };
 
@@ -888,9 +1247,9 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
     md += `| Metric | Value |\n|---|---|\n`;
     md += `| Total Candidates | ${total} |\n`;
     md += `| Verified | ${verifiedTotal} |\n`;
-    md += `| **REACHABLE** | **${reachable.length}** |\n`;
-    md += `| UNREACHABLE | ${unreachable.length} |\n`;
-    md += `| NEEDS_REVIEW | ${needsReview.length} |\n`;
+    md += `| **REACHABLE** | **${reachable.length + r4Reachable.length}** |\n`;
+    md += `| UNREACHABLE | ${unreachable.length + r4Unreachable.length} |\n`;
+    md += `| NEEDS_REVIEW | ${needsReview.length + r4NeedsReview.length} |\n`;
     md += `| Coverage Rate | ${pct(verifiedTotal, total)}% |\n`;
     md += `| Noise Reduction | ${pct(unreachable.length, verifiedTotal)}% |\n\n`;
 
@@ -900,7 +1259,7 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
             md += `### [${c.id}] ${c.cwe_id || c.sink_type}\n`;
             md += `- **File**: \`${c.source_file || c.file_path}:${c.source_line || c.line_number}\`\n`;
             md += `- **Sink**: \`${c.sink_content}\`\n`;
-            md += `- **Evidence**: ${(c.verdict || '').slice(0, 500)}\n\n`;
+            md += `- **Evidence**: ${(c.evidence || c.verdict || '').slice(0, 500)}\n\n`;
         });
     }
 
@@ -912,6 +1271,13 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
         if (needsReview.length > 50) md += `\n... and ${needsReview.length - 50} more\n`;
     }
 
+    if (autonomousFindings.length > 0) {
+        md += `\n## R4 Hypotheses\n\n`;
+        autonomousFindings.forEach(f => {
+            md += `- **${f.hypothesis_id}** ${f.hypothesis}: ${f.hypothesis_verdict}\n`;
+        });
+    }
+
     fs.writeFileSync(reportMdPath, md, 'utf8');
     console.log(`${colors.green}[+] 报告已生成:\n  - JSON: ${reportJsonPath}\n  - Markdown: ${reportMdPath}${colors.reset}`);
 }
@@ -920,5 +1286,8 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
 
 const targetDir = process.argv[2] || '.';
 if (!process.argv.includes('--check-availability')) {
-    executeWorkflow(targetDir);
+    executeWorkflow(targetDir).catch(err => {
+        console.error(`${colors.red}[FATAL] ${err.message}${colors.reset}`);
+        process.exit(1);
+    });
 }

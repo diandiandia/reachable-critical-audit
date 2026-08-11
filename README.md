@@ -37,8 +37,8 @@ reachable-critical-audit/
    - **R1.5 框架感知扩展(L1,项目 wrapper 自识别)** ← 修复 pre-v2 漏报根因
    - R3 双向回溯验证 + verify_queue 状态机
    - R4 业务逻辑深钻(固化 6 类假说)
-3. **Top 15 语言原生覆盖**：
-   Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell。超出 15 种语言的走 L2 fallback 生成 `extended_profile.json`。
+3. **Top 15 语言原生覆盖 + L2 fallback**：
+   Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell。超出 15 种语言的源码扩展会走 L2 fallback，生成带 `reviewed_by: "main-agent"` 的 `.audit_results/extended_profile.json` 并以 `origin=L2` 入队。
 4. **CodeQL 双源规则库**：
    - L0 sink 来自 [github/codeql](https://github.com/github/codeql) 官方 qll 模型自动清洗(由 `tools/codeql_sink_extractor.py` 完成,可重现)
    - L1 wrapper 由 R1.5 阶段动态识别项目自有 sink wrapper(如 Android Bluetooth 的 `osi_*alloc`、`STREAM_TO_UINT16` 宏、Android `ContentResolver.query`)
@@ -52,7 +52,7 @@ reachable-critical-audit/
 8. **Top 10 严重漏洞聚焦 (Zero Noise)**：
    坚决剔除代码规范、命名、弱随机数等垃圾报警。只关注 RCE、SQLi、SSRF、逻辑越权、内存越界(OOB read/write)、UAF、未控内存分配(CWE-789)、特权提升等直接对系统产生实质危害的缺陷。
 9. **固化 6 类业务逻辑假说 (REQ-15)**：
-   R4 阶段必选 6 类假说:CWE-789 / CWE-125-787 / CWE-416-UAF / 跨进程信任边界破坏 / 导出无权 / 越权-多租户。每类三选一结论(`confirmed` / `reviewed_clean` / `not_applicable`),禁止默默跳过。
+   R4 阶段必选 6 类假说:CWE-789 / CWE-125-787 / CWE-416-UAF / 跨进程信任边界破坏 / 导出无权 / 越权-多租户。每类三选一结论(`confirmed` / `reviewed_clean` / `not_applicable`),禁止默默跳过；结果写入 `verify_queue.json` 的 `r4_findings` 段并参与最终指标。
 
 ---
 
