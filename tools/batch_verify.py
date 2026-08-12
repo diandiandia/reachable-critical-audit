@@ -241,6 +241,10 @@ def stage_assert(project_root):
                 invalid_verified.append({"id": c.get("id"), "reason": "insufficient call_chain_depth"})
             if not c.get("evidence"):
                 invalid_verified.append({"id": c.get("id"), "reason": "missing evidence"})
+        if verdict == "REACHABLE" and not c.get("reachability_type"):
+            invalid_verified.append({"id": c.get("id"), "reason": "missing reachability_type"})
+        if verdict == "UNREACHABLE" and not c.get("blocking_point"):
+            invalid_verified.append({"id": c.get("id"), "reason": "missing blocking_point"})
 
     if pending:
         print(json.dumps({

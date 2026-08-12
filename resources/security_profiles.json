@@ -7278,6 +7278,68 @@
       }
     ]
   },
+  "l2_fallback_rules": [
+    {
+      "cwe_id": "CWE-78",
+      "category": "CommandInjection",
+      "priority": 0,
+      "regex": "\\b(os:cmd|system|popen|exec|spawn|open_port|Process\\.start)\\b"
+    },
+    {
+      "cwe_id": "CWE-94",
+      "category": "CodeExecution",
+      "priority": 0,
+      "regex": "\\b(eval|compile|load_string|Code\\.eval|erl_eval)\\b"
+    },
+    {
+      "cwe_id": "CWE-89",
+      "category": "SqlInjection",
+      "priority": 0,
+      "regex": "\\b(query|execute|rawQuery|execSQL)\\b.*(\\+|<<|#\\{|%\\{|format)"
+    },
+    {
+      "cwe_id": "CWE-918",
+      "category": "Ssrf",
+      "priority": 0,
+      "regex": "\\b(httpc:request|hackney:request|request|get_url|fetch)\\b"
+    },
+    {
+      "cwe_id": "CWE-639",
+      "category": "AuthorizationBypass",
+      "priority": 0,
+      "regex": "\\b(owner|tenant|account|user_id|session)\\b.*\\b(update|delete|read|query|get)\\b"
+    },
+    {
+      "cwe_id": "CWE-502",
+      "category": "Deserialization",
+      "priority": 0,
+      "regex": "\\b(unserialize|deserialize|binary_to_term|pickle|marshal|readObject)\\b"
+    },
+    {
+      "cwe_id": "CWE-22",
+      "category": "PathTraversal",
+      "priority": 1,
+      "regex": "\\b(open|read_file|write_file|File\\.open|Path\\.join)\\b.*(\\.\\.|path|filename|file_name)"
+    },
+    {
+      "cwe_id": "CWE-73",
+      "category": "ExternalFileControl",
+      "priority": 1,
+      "regex": "\\b(write|save|upload|download|rename|copy)\\b.*\\b(path|filename|file_name|user|request)\\b"
+    },
+    {
+      "cwe_id": "CWE-1336",
+      "category": "TemplateInjection",
+      "priority": 1,
+      "regex": "\\b(render|template|compile_template|from_string)\\b.*\\b(user|request|params|input)\\b"
+    },
+    {
+      "cwe_id": "CWE-20",
+      "category": "UnsafeBoundaryInput",
+      "priority": 1,
+      "regex": "\\b(send|write|transact|publish|broadcast|call)\\b.*\\b(socket|ipc|binder|channel|port|message)\\b"
+    }
+  ],
   "codeql_revision_note": "codeql-cli/latest-203-g1c0ae0f2c95; sink 提取自 .model.yml sinkModel + 旧式 qll",
   "semgrep_revision": "40b8c63f75dc7c22c8a77482d73bfb864b146f7e"
 }

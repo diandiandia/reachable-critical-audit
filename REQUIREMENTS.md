@@ -53,7 +53,7 @@
 *   **详细描述**：系统按三层级处理语言覆盖，**删除 pre-v2 中"白名单外语言直接拒绝审计"的约束**：
     *   **L0**：项目主语言属于 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）时，直接加载 `security_profiles.json` 中固化的 Top-N 规则。每个候选节点必须标注 `origin: "L0"`。
     *   **L1**：项目主语言在 L0 之内，但使用了项目自有的 sink/source wrapper（如 Android Bluetooth 的 `osi_*alloc`、`STREAM_TO_UINT*` 宏，PHP 框架的 `DB\SQL::exec` 等）。由 REQ-18 的 R1.5 阶段识别产出 `extended_sinks.json`，并入候选队列，标注 `origin: "L1"`。
-    *   **L2**：项目包含非预设语言（如 Erlang、Haskell、Cobol）。Agent **必须**利用内置安全知识动态生成该语言的 Top 10 高危漏洞映射（仅限 RCE、SQLi、SSRF、越权、反序列化类别），落盘为 `.audit_results/extended_profile.json`，由主 Agent 复核后才并入候选队列，标注 `origin: "L2"`。Mode B 中由 `run_workflow.js` 对非预设源码扩展执行保守通用高危模式扫描，并写入 `reviewed_by: "main-agent"`。
+    *   **L2**：项目包含非预设语言（如 Erlang、Haskell、Cobol）。Agent **必须**基于 `security_profiles.json.l2_fallback_rules` 动态生成该语言的 Top 10 高危漏洞映射（覆盖 RCE、SQLi、SSRF、越权、反序列化等类别），落盘为 `.audit_results/extended_profile.json`，由主 Agent 复核后才并入候选队列，标注 `origin: "L2"`。Mode B 中由 `run_workflow.js` 对非预设源码扩展执行保守通用高危模式扫描，并写入 `reviewed_by: "main-agent"`。
 *   **强制约束**：L2 fallback 产物必须经主 Agent 显式复核签名（在 `extended_profile.json` 中写 `reviewed_by: "main-agent"` 字段）后才能进入 R3 验证队列。
 
 ### REQ-03: AST 依赖 bootstrap + 物理工具 R0 self-check 与全语言 AST 对齐
@@ -113,6 +113,7 @@
     *   **L1 源 = 项目 wrapper_detection**：`security_profiles.json` 内必须包含 `wrapper_detection` 段，描述如何让 R1.5 阶段识别项目自有 sink wrapper。
     *   **PROPERTY_CHECK 模式段**：包含 4 类逻辑/属性校验模式的结构化定义。
     *   **手工补丁段**：CodeQL 不覆盖但必须纳入的 sink，单独列在 `manual_additions` 段。
+    *   **L2 fallback 规则段**：非预设语言兜底扫描的 Top 10 高危模式必须位于 `l2_fallback_rules` 段。
 *   **强制约束**：禁止在程序逻辑中散落或硬编码任何 sink/source 规则；所有规则必须在 JSON 中可审计。
 
 ### REQ-12: 物理文件隔离前置守卫

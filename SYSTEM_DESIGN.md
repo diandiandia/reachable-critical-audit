@@ -276,7 +276,7 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 *   **设计实现**：
     *   **L0**：`security_profiles.json` `rules` 段，由 CodeQL 清洗产出，覆盖 15 种预设语言的 Top-N 高危 CWE。
     *   **L1**：`wrapper_detection` 段驱动 R1.5 阶段（REQ-18）扫描项目自有 wrapper，产出 `extended_sinks.json` 并入队。
-    *   **L2**：非预设语言由 Agent 用内置安全知识生成 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，主 Agent 复核签名后才入队。Mode B 由 `run_workflow.js` 对非预设源码扩展执行保守通用高危模式扫描，写入 `reviewed_by: "main-agent"` 并以 `origin=L2` 入队。
+    *   **L2**：非预设语言由 Agent 基于 `security_profiles.json.l2_fallback_rules` 的 Top 10 高危规则生成漏洞映射，落盘 `.audit_results/extended_profile.json`，主 Agent 复核签名后才入队。Mode B 由 `run_workflow.js` 读取该配置，对非预设源码扩展执行保守通用高危模式扫描，写入 `reviewed_by: "main-agent"` 并以 `origin=L2` 入队。
     *   `verify_queue.json` 每个候选 `origin` 字段标 L0/L1/L2/R4，供 REQ-10 公式区分。
 
 ### REQ-03: AST 依赖 bootstrap + 物理工具强制 R0 self-check
@@ -359,6 +359,7 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 *   **设计实现**：
     *   `security_profiles.json` 双源：CodeQL qll 清洗（L0）+ `manual_additions` 手工补丁。`codeql_revision` 字段记录所用版本。
     *   `wrapper_detection` 段驱动 R1.5 L1 扩展。
+    *   `l2_fallback_rules` 段驱动非预设语言 Top 10 高危兜底扫描，避免 fallback 规则散落在代码中。
     *   详见 §4。
 
 ### REQ-12: 物理文件隔离前置守卫

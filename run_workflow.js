@@ -225,6 +225,9 @@ function loadQueue(queuePath) {
 }
 
 function saveQueue(queuePath, rawWrapper, candidates) {
+    if (path.basename(path.dirname(path.resolve(queuePath))) !== '.audit_results') {
+        throw new Error(`Refusing to write queue outside .audit_results: ${queuePath}`);
+    }
     if (rawWrapper === null) {
         // Legacy array format
         fs.writeFileSync(queuePath, JSON.stringify(candidates, null, 2), 'utf8');
@@ -233,6 +236,23 @@ function saveQueue(queuePath, rawWrapper, candidates) {
         rawWrapper.candidates = candidates;
         fs.writeFileSync(queuePath, JSON.stringify(rawWrapper, null, 2), 'utf8');
     }
+}
+
+function assertAuditResultPath(outputDir, targetPath) {
+    const base = path.resolve(outputDir);
+    const target = path.resolve(targetPath);
+    if (path.basename(base) !== '.audit_results') {
+        throw new Error(`Audit output directory must be .audit_results: ${base}`);
+    }
+    if (target !== base && !target.startsWith(base + path.sep)) {
+        throw new Error(`Refusing to write outside .audit_results: ${target}`);
+    }
+    return target;
+}
+
+function writeAuditJson(outputDir, filename, value) {
+    const target = assertAuditResultPath(outputDir, path.join(outputDir, filename));
+    fs.writeFileSync(target, JSON.stringify(value, null, 2), 'utf8');
 }
 
 // ==================== Verdict 结构化提取 ====================
@@ -535,38 +555,26 @@ function detectLanguages(workspacePath) {
     return { langs, counts };
 }
 
-const L2_GENERIC_RULES = [
-    {
-        cwe_id: 'CWE-78',
-        category: 'CommandExecution',
-        priority: 0,
-        regex: /\b(os:cmd|system|popen|exec|spawn|open_port|Process\.start)\b/,
-    },
-    {
-        cwe_id: 'CWE-94',
-        category: 'CodeExecution',
-        priority: 0,
-        regex: /\b(eval|compile|load_string|Code\.eval|erl_eval)\b/,
-    },
-    {
-        cwe_id: 'CWE-89',
-        category: 'SqlInjection',
-        priority: 0,
-        regex: /\b(query|execute|rawQuery|execSQL)\b.*(\+|<<|\#\{|%\{|format)/,
-    },
-    {
-        cwe_id: 'CWE-502',
-        category: 'Deserialization',
-        priority: 0,
-        regex: /\b(unserialize|deserialize|binary_to_term|pickle|marshal|readObject)\b/,
-    },
-    {
-        cwe_id: 'CWE-918',
-        category: 'Ssrf',
-        priority: 0,
-        regex: /\b(httpc:request|hackney:request|request|get_url|fetch)\b/,
-    },
-];
+function loadL2FallbackRules() {
+    const profilePath = path.join(__dirname, 'resources', 'security_profiles.json');
+    const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+    const rawRules = profile.l2_fallback_rules;
+    if (!Array.isArray(rawRules) || rawRules.length < 10) {
+        throw new Error('security_profiles.json l2_fallback_rules must contain at least 10 rules');
+    }
+    return rawRules.map((rule, idx) => {
+        if (!rule.cwe_id || !rule.category || typeof rule.regex !== 'string') {
+            throw new Error(`Invalid l2_fallback_rules[${idx}]`);
+        }
+        return {
+            cwe_id: rule.cwe_id,
+            category: rule.category,
+            priority: Number.isInteger(rule.priority) ? rule.priority : 1,
+            regex: new RegExp(rule.regex),
+            regex_source: rule.regex,
+        };
+    });
+}
 
 const R4_HYPOTHESES = [
     { id: 'H-1', title: '远端控制 allocation size', cwe: ['CWE-789'] },
@@ -606,6 +614,7 @@ function collectUnknownSourceFiles(workspacePath) {
 function runL2Fallback(workspacePath, queue, outputDir) {
     const { files, extCounts } = collectUnknownSourceFiles(workspacePath);
     if (files.length === 0) return 0;
+    const l2Rules = loadL2FallbackRules();
 
     const profile = {
         schema_version: '2.0',
@@ -615,15 +624,14 @@ function runL2Fallback(workspacePath, queue, outputDir) {
         unknown_extensions: Object.entries(extCounts)
             .map(([ext, count]) => ({ ext, count }))
             .sort((a, b) => b.count - a.count),
-        rules: L2_GENERIC_RULES.map(r => ({
+        rules: l2Rules.map(r => ({
             cwe_id: r.cwe_id,
             category: r.category,
             priority: r.priority,
-            pattern: r.regex.source
+            pattern: r.regex_source
         }))
     };
-    fs.writeFileSync(path.join(outputDir, 'extended_profile.json'),
-        JSON.stringify(profile, null, 2), 'utf8');
+    writeAuditJson(outputDir, 'extended_profile.json', profile);
 
     let maxN = 0;
     const existingKeys = new Set();
@@ -647,7 +655,7 @@ function runL2Fallback(workspacePath, queue, outputDir) {
         const rel = path.relative(workspacePath, filePath);
         const lines = content.split(/\r?\n/);
         lines.forEach((line, idx) => {
-            for (const rule of L2_GENERIC_RULES) {
+            for (const rule of l2Rules) {
                 if (!rule.regex.test(line)) continue;
                 const key = `${rel}|${idx + 1}|${rule.cwe_id}|${rule.category}`;
                 if (existingKeys.has(key)) break;
@@ -665,7 +673,7 @@ function runL2Fallback(workspacePath, queue, outputDir) {
                     cwe_id: rule.cwe_id,
                     sink_type: rule.cwe_id,
                     category: rule.category,
-                    source_pattern: rule.regex.source,
+                    source_pattern: rule.regex_source,
                     type: 'TAINT_ANALYSIS',
                     sink_content: sinkContent,
                     priority: rule.priority,
@@ -752,8 +760,7 @@ async function runR15FrameworkExtraction(workspacePath, queue, outputDir) {
 
     if (applicable.length === 0) {
         console.log(`${colors.yellow}[R1.5] 无适用语言的 wrapper_detection 配置，扩展阶段无产出（但已执行）。${colors.reset}`);
-        fs.writeFileSync(path.join(outputDir, 'extended_sinks.json'),
-            JSON.stringify({ extended_sinks: [] }, null, 2), 'utf8');
+        writeAuditJson(outputDir, 'extended_sinks.json', { extended_sinks: [] });
         return 0;
     }
 
@@ -774,8 +781,7 @@ async function runR15FrameworkExtraction(workspacePath, queue, outputDir) {
         }
     }
 
-    fs.writeFileSync(path.join(outputDir, 'extended_sinks.json'),
-        JSON.stringify({ extended_sinks: allSinks }, null, 2), 'utf8');
+    writeAuditJson(outputDir, 'extended_sinks.json', { extended_sinks: allSinks });
 
     // 以 origin=L1 并入 queue，去重键 file+line+wrapper_name
     let maxN = 0;
@@ -826,6 +832,22 @@ async function runR15FrameworkExtraction(workspacePath, queue, outputDir) {
 // ==================== --check-availability 子命令 ====================
 
 function checkAvailability() {
+    if (process.env.REACHABLE_AUDIT_MODE === 'native') {
+        console.log(JSON.stringify({
+            mode: 'A_NATIVE_ANTIGRAVITY',
+            reason: 'REACHABLE_AUDIT_MODE=native',
+            instruction: '使用 define_subagent/invoke_subagent 编排'
+        }));
+        process.exit(0);
+    }
+    if (process.env.OPENCODE === '1') {
+        console.log(JSON.stringify({
+            mode: 'A_NATIVE_OPENCODE',
+            reason: 'OPENCODE=1',
+            instruction: '使用 task 工具 + tools/batch_verify.py 编排'
+        }));
+        process.exit(0);
+    }
     const cliName = findAgentCli();
     if (!cliName) {
         console.log(JSON.stringify({
@@ -903,13 +925,13 @@ async function executeWorkflow(workspacePath) {
     }
 
     // 写入执行模式记录
-    fs.writeFileSync(path.join(outputDir, 'execution_mode.json'), JSON.stringify({
+    writeAuditJson(outputDir, 'execution_mode.json', {
         mode: `CLI_${cliName.toUpperCase()}`,
         cli: cliName,
         batch_size: BATCH_SIZE,
         timeout_ms: TIMEOUT_MS,
         detected_at: new Date().toISOString()
-    }, null, 2), 'utf8');
+    });
 
     // --- 阶段 1: 扫描/加载候选队列 ---
     let queueObj;
@@ -1061,6 +1083,28 @@ async function executeWorkflow(workspacePath) {
 
     const { candidates: finalQueue } = loadQueue(queuePath);
     const unverified = finalQueue.filter(c => c.status === "PENDING");
+    const invalidVerified = [];
+    for (const c of finalQueue) {
+        if (c.status !== 'VERIFIED') continue;
+        if (!VALID_VERDICTS.includes(c.verdict)) {
+            invalidVerified.push({ id: c.id, reason: 'invalid verdict' });
+            continue;
+        }
+        if (c.verdict === 'REACHABLE' || c.verdict === 'UNREACHABLE') {
+            if (!Array.isArray(c.call_chain) || c.call_chain_depth < MIN_CALL_CHAIN_DEPTH) {
+                invalidVerified.push({ id: c.id, reason: 'insufficient call_chain_depth' });
+            }
+            if (!c.evidence) {
+                invalidVerified.push({ id: c.id, reason: 'missing evidence' });
+            }
+        }
+        if (c.verdict === 'REACHABLE' && !c.reachability_type) {
+            invalidVerified.push({ id: c.id, reason: 'missing reachability_type' });
+        }
+        if (c.verdict === 'UNREACHABLE' && !c.blocking_point) {
+            invalidVerified.push({ id: c.id, reason: 'missing blocking_point' });
+        }
+    }
 
     if (unverified.length > 0) {
         console.error(`${colors.red}[CRITICAL] 完整性校验失败！仍有 ${unverified.length} 个 PENDING 节点！${colors.reset}`);
@@ -1069,6 +1113,13 @@ async function executeWorkflow(workspacePath) {
         });
         if (unverified.length > 20) console.error(`  ... 及另外 ${unverified.length - 20} 项`);
         process.exit(2);
+    }
+    if (invalidVerified.length > 0) {
+        console.error(`${colors.red}[CRITICAL] 完整性校验失败！存在 ${invalidVerified.length} 个非法 VERIFIED 节点！${colors.reset}`);
+        invalidVerified.slice(0, 20).forEach(item => {
+            console.error(`  - ${item.id}: ${item.reason}`);
+        });
+        process.exit(3);
     }
 
     const stats = {
@@ -1085,7 +1136,7 @@ async function executeWorkflow(workspacePath) {
 
     const domainProfile = inferProjectDomain(workspacePath);
     const archViewPath = path.join(outputDir, 'architecture_view.json');
-    fs.writeFileSync(archViewPath, JSON.stringify(domainProfile, null, 2), 'utf8');
+    writeAuditJson(outputDir, 'architecture_view.json', domainProfile);
     console.log(`${colors.cyan}[R4] 项目域: ${domainProfile.domainName}${colors.reset}`);
 
     const highRiskFiles = findHighRiskModules(workspacePath);
@@ -1134,12 +1185,19 @@ async function executeWorkflow(workspacePath) {
     queueWrapper.r4_findings = autonomousFindings;
     fs.writeFileSync(queuePath, JSON.stringify(queueWrapper, null, 2), 'utf8');
     const autonomousPath = path.join(outputDir, 'autonomous_logical_findings.json');
-    fs.writeFileSync(autonomousPath, JSON.stringify(autonomousFindings, null, 2), 'utf8');
+    writeAuditJson(outputDir, 'autonomous_logical_findings.json', autonomousFindings);
 
     const completedR4 = new Set(autonomousFindings.map(f => f.hypothesis_id));
     const missingR4 = R4_HYPOTHESES.filter(h => !completedR4.has(h.id));
-    if (missingR4.length > 0) {
+    const invalidR4 = autonomousFindings.filter(f =>
+        f.status !== 'VERIFIED' ||
+        !['confirmed', 'reviewed_clean', 'not_applicable', 'needs_review'].includes(f.hypothesis_verdict)
+    );
+    if (missingR4.length > 0 || invalidR4.length > 0) {
         console.error(`${colors.red}[CRITICAL] R4 完整性校验失败，缺少假说: ${missingR4.map(h => h.id).join(', ')}${colors.reset}`);
+        if (invalidR4.length > 0) {
+            console.error(`${colors.red}[CRITICAL] R4 存在非法结果: ${invalidR4.map(f => f.hypothesis_id || '?').join(', ')}${colors.reset}`);
+        }
         process.exit(2);
     }
 
@@ -1249,12 +1307,15 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
     const r4Count = autonomousFindings.length;
 
     const pct = (n, d) => d > 0 ? ((n / d) * 100).toFixed(2) : "0.00";
+    const l1RatioPct = pct(l1Count, total);
+    const r4ReachableRatioPct = pct(r4Reachable.length, total);
 
     const reportContent = {
         report_meta: {
             generated_at: new Date().toISOString(),
             schema_version: "2.0",
-            cli_used: detectAgentCli()
+            cli_used: detectAgentCli(),
+            sampling_strategy: "full_queue_no_sampling"
         },
         quantified_metrics: {
             total_candidates: total,
@@ -1266,6 +1327,8 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
             reachability_rate_pct: `${pct(reachable.length + r4Reachable.length, verifiedTotal)}%`,
             noise_reduction_rate_pct: `${pct(unreachable.length + r4Unreachable.length, verifiedTotal)}%`,
             sink_discovery_rate_pct: `${pct(l0Count, total)}%`,
+            l1_ratio_pct: `${l1RatioPct}%`,
+            r4_reachable_ratio_pct: `${r4ReachableRatioPct}%`,
             false_negative_risk_pct: `${pct(l1Count + r4Reachable.length, total)}%`,
             origin_breakdown: { L0: l0Count, L1: l1Count, L2: l2Count, R4: r4Count }
         },
@@ -1284,7 +1347,33 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
             sink_type: c.sink_type || c.cwe_id,
             blocking_point: c.blocking_point || null,
             reason: c.evidence || "研判拒绝或返回模糊"
-        })),
+        })).concat(r4NeedsReview.map(f => ({
+            id: f.hypothesis_id,
+            origin: 'R4',
+            source_file: null,
+            source_line: null,
+            sink_type: Array.isArray(f.cwe) ? f.cwe.join(',') : null,
+            blocking_point: null,
+            reason: f.coverage_note || f.evidence || 'R4 hypothesis requires review'
+        }))),
+        unreachable_verified: {
+            count: unreachable.length + r4Unreachable.length,
+            candidates: unreachable.map(c => ({
+                id: c.id,
+                origin: c.origin || 'L0',
+                source_file: c.source_file || c.file_path,
+                source_line: c.source_line || c.line_number,
+                sink_type: c.sink_type || c.cwe_id,
+                blocking_point: c.blocking_point || null,
+                evidence: c.evidence || ''
+            })),
+            r4_findings: r4Unreachable.map(f => ({
+                hypothesis_id: f.hypothesis_id,
+                hypothesis: f.hypothesis,
+                hypothesis_verdict: f.hypothesis_verdict,
+                evidence: f.evidence || f.coverage_note || ''
+            }))
+        },
         autonomous_findings: autonomousFindings.map(f => ({
             hypothesis_id: f.hypothesis_id,
             hypothesis: f.hypothesis,
@@ -1299,12 +1388,14 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
         }))
     };
 
+    assertAuditResultPath(path.dirname(reportJsonPath), reportJsonPath);
     fs.writeFileSync(reportJsonPath, JSON.stringify(reportContent, null, 2), 'utf8');
 
     // Markdown 报告
     const reportMdPath = path.join(path.dirname(reportJsonPath), 'reachable_vulnerabilities_report.md');
     let md = `# Reachable Critical Audit Report\n\n`;
     md += `Generated: ${reportContent.report_meta.generated_at} | CLI: ${reportContent.report_meta.cli_used}\n\n`;
+    md += `Sampling: ${reportContent.report_meta.sampling_strategy} (NEEDS_REVIEW is included in all denominators)\n\n`;
     md += `## Metrics\n\n`;
     md += `| Metric | Value |\n|---|---|\n`;
     md += `| Total Candidates | ${total} |\n`;
@@ -1312,8 +1403,12 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
     md += `| **REACHABLE** | **${reachable.length + r4Reachable.length}** |\n`;
     md += `| UNREACHABLE | ${unreachable.length + r4Unreachable.length} |\n`;
     md += `| NEEDS_REVIEW | ${needsReview.length + r4NeedsReview.length} |\n`;
-    md += `| Coverage Rate | ${pct(verifiedTotal, total)}% |\n`;
-    md += `| Noise Reduction | ${pct(unreachable.length, verifiedTotal)}% |\n\n`;
+    md += `| Rule Coverage Rate | ${pct(verifiedTotal, total)}% |\n`;
+    md += `| Reachability Rate | ${pct(reachable.length + r4Reachable.length, verifiedTotal)}% |\n`;
+    md += `| Noise Reduction Rate | ${pct(unreachable.length + r4Unreachable.length, verifiedTotal)}% |\n`;
+    md += `| Sink Discovery Rate | ${pct(l0Count, total)}% |\n`;
+    md += `| False Negative Risk | ${pct(l1Count + r4Reachable.length, total)}% |\n`;
+    md += `| Origin Breakdown | L0=${l0Count}, L1=${l1Count}, L2=${l2Count}, R4=${r4Count} |\n\n`;
 
     if (reachable.length > 0) {
         md += `## 🚨 Reachable Vulnerabilities\n\n`;
@@ -1325,12 +1420,15 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
         });
     }
 
-    if (needsReview.length > 0) {
+    if (needsReview.length + r4NeedsReview.length > 0) {
         md += `## ⚠️ Needs Review\n\n`;
         needsReview.slice(0, 50).forEach(c => {
             md += `- **[${c.id}]** \`${c.source_file || c.file_path}:${c.source_line || c.line_number}\` (${c.sink_type || c.cwe_id})\n`;
         });
-        if (needsReview.length > 50) md += `\n... and ${needsReview.length - 50} more\n`;
+        r4NeedsReview.forEach(f => {
+            md += `- **[${f.hypothesis_id}]** R4 ${f.hypothesis}: ${f.coverage_note || 'needs review'}\n`;
+        });
+        if (needsReview.length > 50) md += `\n... and ${needsReview.length - 50} more queue items\n`;
     }
 
     if (autonomousFindings.length > 0) {
@@ -1340,16 +1438,26 @@ function compileReport(queue, reportJsonPath, autonomousFindings = [], workspace
         });
     }
 
+    assertAuditResultPath(path.dirname(reportJsonPath), reportMdPath);
     fs.writeFileSync(reportMdPath, md, 'utf8');
     console.log(`${colors.green}[+] 报告已生成:\n  - JSON: ${reportJsonPath}\n  - Markdown: ${reportMdPath}${colors.reset}`);
 }
 
 // ==================== 入口 ====================
 
-const targetDir = process.argv[2] || '.';
-if (!process.argv.includes('--check-availability')) {
-    executeWorkflow(targetDir).catch(err => {
-        console.error(`${colors.red}[FATAL] ${err.message}${colors.reset}`);
-        process.exit(1);
-    });
+if (require.main === module) {
+    const targetDir = process.argv[2] || '.';
+    if (!process.argv.includes('--check-availability')) {
+        executeWorkflow(targetDir).catch(err => {
+            console.error(`${colors.red}[FATAL] ${err.message}${colors.reset}`);
+            process.exit(1);
+        });
+    }
 }
+
+module.exports = {
+    assertAuditResultPath,
+    compileReport,
+    loadL2FallbackRules,
+    normalizeVerifierResult,
+};

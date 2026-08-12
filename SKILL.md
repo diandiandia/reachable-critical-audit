@@ -105,7 +105,7 @@ R1 完成后**必须无条件执行**。R1.5 与 R1 互补：R1 聚焦预设 L0 
    - **Mode B（`run_workflow.js`）**：阶段 1.5 自动执行（AST 扫描后、R3 验证前），逐语言 spawn 子进程、产出 `extended_sinks.json` 并以 `origin=L1` 并入队列，幂等（`extended_sinks.json` 存在则断点续传时不重复）。
    - **Mode A（Antigravity）**：`define_subagent` + `invoke_subagent` 拉起 `framework-sink-extractor`，产出同上。
 3. **落盘并入队**：产出 `.audit_results/extended_sinks.json`，并入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L1`，`priority` 默认 P1。
-4. **L2 fallback（非预设语言）**：若项目包含 15 种预设之外的语言（如 Erlang），Agent 必须用内置安全知识生成该语言的 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，**经主 Agent 显式复核签名**（写入 `reviewed_by: "main-agent"`）后才并入候选队列，`origin` 标记 `L2`。Mode B 会在 R1.5 后自动对非预设源码扩展执行保守高危模式扫描并入队。
+4. **L2 fallback（非预设语言）**：若项目包含 15 种预设之外的语言（如 Erlang），Agent 必须基于 `security_profiles.json` 的 `l2_fallback_rules` Top 10 高危规则生成该语言的漏洞映射，落盘 `.audit_results/extended_profile.json`，**经主 Agent 显式复核签名**（写入 `reviewed_by: "main-agent"`）后才并入候选队列，`origin` 标记 `L2`。Mode B 会在 R1.5 后自动读取该配置，对非预设源码扩展执行保守高危模式扫描并入队。
 
 ---
 
