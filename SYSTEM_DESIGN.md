@@ -27,7 +27,7 @@ pre-v2 的设计哲学是"数据流/业务逻辑双轨制 + Grep 粗筛 + AST �
 ```mermaid
 graph TD
     A[工作区源代码]
-    R0[R0: 工具自检 + 平台探测 + mkdir .audit_results]
+    R0[R0: 依赖 bootstrap + 工具自检 + 平台探测 + mkdir .audit_results]
     R1[R1: 静态规则扫描 L0<br/>ast_scanner.py + security_profiles.json]
     R15[R1.5: 框架感知扩展 L1<br/>wrapper_detection -> extended_sinks.json]
     R3[R3: 回溯可达性验证<br/>分批并发 Subagent + verify_queue 状态机]
@@ -46,7 +46,7 @@ graph TD
 
 | 阶段 | 名称 | 输入 | 输出 | 守卫 |
 | :--- | :--- | :--- | :--- | :--- |
-| **R0** | 工具自检 + 平台探测 | 工作区路径 | `.audit_results/` 目录骨架 + `execution_mode.json` + `verify_queue.json` 空队列 | `ast_scanner.py --self-check` 失败即 fail-fast |
+| **R0** | 依赖 bootstrap + 工具自检 + 平台探测 | 工作区路径 | `.venv/`（必要时）+ `.audit_results/` 目录骨架 + `execution_mode.json` + `verify_queue.json` 空队列 | tree-sitter/grammar 安装或 `ast_scanner.py --self-check` 失败即 fail-fast |
 | **R1** | 静态规则扫描 (L0) | `security_profiles.json` + 工作区 | `verify_queue.json` 候选段（origin=L0） | AST 校验不通过的候选降级 NEEDS_REVIEW |
 | **R1.5** | 框架感知扩展 (L1) | `wrapper_detection` + 工作区 | `extended_sinks.json` + 并入 `verify_queue.json`（origin=L1） | 始终执行，与 R1 互补不可替代 |
 | **R3** | 回溯可达性验证 | `verify_queue.json` PENDING 节点 | 每节点状态机推进到 REACHABLE/UNREACHABLE/NEEDS_REVIEW | 每批立即落盘 + Assert 无 PENDING 才能进 R4 |
@@ -143,7 +143,7 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 ### 3.4 平台一致性强约束
 
 无论何种模式，以下流程层必须一致，不允许因平台差异而省略：
-- R0 工具自检 + `mkdir .audit_results/`
+- R0 依赖 bootstrap + 工具自检 + `mkdir .audit_results/`
 - `verify_queue.json` 强制落盘 + 状态机
 - R1.5 始终执行（无条件，与 R1 互补）
 - R4 6 类固化假说
@@ -220,7 +220,7 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 1. **编译验证**：用对应语言的 tree-sitter grammar 实例化 `Query(lang, pattern)`，不得抛 `QueryError`。此步捕获错误的节点类型名（如把 Java 的 `method_invocation` 误用到 Kotlin/Scala）、错误的字段名（如 C# 的 `Expression` 应为 `expression`）、不存在的语法结构。
 2. **命中验证**：在一段包含目标 sink 的最小正样例代码上运行该 query，命中数必须 > 0。此步捕获「能编译但匹配不到真实代码」的空 pattern。
 
-**约束**：任一验证失败的 pattern 一律不得写入。若某规则所有候选 pattern 均无法通过验证，则该规则保持 **regex-only**（移除 `ast_patterns` 字段），self-check 覆盖率如实下降，**绝不以编译失败的 pattern 充数覆盖率**。当前 12 种带 grammar 包的语言（C++/Java/Python/JS/Go/C#/Rust/PHP/Ruby/Swift/Kotlin/Scala）共 187 条 pattern 全部通过双重验证。
+**约束**：任一验证失败的 pattern 一律不得写入。若某规则所有候选 pattern 均无法通过验证，则该规则保持 **regex-only**（移除 `ast_patterns` 字段），self-check 覆盖率如实下降，**绝不以编译失败的 pattern 充数覆盖率**。当前 12 种带 grammar 包的语言（C++/Java/Python/JS/Go/C#/Rust/PHP/Ruby/Swift/Kotlin/Scala）共 188 条 pattern 全部通过双重验证。
 
 ### 4.3 手工补丁段 (manual_additions)
 
@@ -279,11 +279,13 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
     *   **L2**：非预设语言由 Agent 用内置安全知识生成 Top 10 高危漏洞映射，落盘 `.audit_results/extended_profile.json`，主 Agent 复核签名后才入队。Mode B 由 `run_workflow.js` 对非预设源码扩展执行保守通用高危模式扫描，写入 `reviewed_by: "main-agent"` 并以 `origin=L2` 入队。
     *   `verify_queue.json` 每个候选 `origin` 字段标 L0/L1/L2/R4，供 REQ-10 公式区分。
 
-### REQ-03: AST 物理工具强制 R0 self-check
+### REQ-03: AST 依赖 bootstrap + 物理工具强制 R0 self-check
 *   **设计实现**：
-    *   R0 阶段第一步：`python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` + 有规则语言的对应 grammar 可用。
+    *   R0 阶段第一步：优先使用仓库 `.venv/bin/python3`；`.venv` 不存在时由 `python3 -m venv .venv` 创建；self-check 报告缺 `tree-sitter` 或 grammar 时，在 `.venv` 内安装 `tree-sitter` 及 Java/C++/Python/JavaScript/Go/Rust/C#/PHP/Ruby/Swift/Kotlin/Scala grammar 包并重试一次。
+    *   Mode B 中 `run_workflow.js` 通过 `ensureWorkflowPython()` 创建/选择 `.venv`，通过 `runAstSelfCheck()` 执行 self-check，失败后调用 `installTreeSitterDeps()` 安装依赖并重试；`PYTHON_BIN` 显式设置时只使用该解释器，失败直接 fail-fast，避免污染系统 Python。
+    *   bootstrap 后运行 `.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter` + 有规则语言的对应 grammar 可用。
     *   规则库加载失败、tree-sitter 缺失、任一有规则语言 grammar 缺失或 AST 覆盖率低于阈值时 fail-fast 终止，**绝不降级为 LLM 脑补 AST**。
-    *   R1 阶段每个 sink 候选必须经 `ast_scanner.py` 的 tree-sitter S-expression 校验，正则命中但 AST 校验不通过 → 降级 `NEEDS_REVIEW`。
+    *   R1 阶段优先用 `ast_scanner.py` 的 tree-sitter S-expression 产生高置信候选，同时始终保留正则粗筛作为召回兜底；正则命中但缺乏 AST 校验支撑 → 降级 `NEEDS_REVIEW`。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
 *   **设计实现**：

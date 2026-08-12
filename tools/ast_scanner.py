@@ -214,8 +214,9 @@ class ASTCoarseScanner:
                             # 语法解析报错，打印日志并降级到正则
                             sys.stderr.write(f"[Warning] AST scan failed for {rel_path}: {str(e)}. Falling back to regex...\n")
 
-                    # 2. 降级逻辑：如缺少环境或解析失败，退化为正则检索
-                    if not ast_success and regex_patterns:
+                    # 2. 正则粗筛始终执行，AST 命中用于提升置信度；缺少 AST 支撑的
+                    #    正则候选会在 _scan_via_regex 中降级为 NEEDS_REVIEW。
+                    if regex_patterns:
                         line_candidates = self._scan_via_regex(content, regex_patterns, rel_path, lang, rules[lang])
                         candidates.extend(line_candidates)
 
@@ -225,6 +226,7 @@ class ASTCoarseScanner:
                     candidates.extend(prop_candidates)
 
         # 编号并规范化 Schema 输出 (REQ-02, REQ-09)
+        candidates = self._dedupe_candidates(candidates)
         for idx, cand in enumerate(candidates, 1):
             cand["id"] = f"CAND-{idx:03d}"
             cand["origin"] = cand.get("origin", "L0")
@@ -559,6 +561,34 @@ class ASTCoarseScanner:
             cand["priority"] = self._priority_for_cwe(cand.get("cwe_id", ""))
             filtered.append(cand)
         return filtered, discarded
+
+    def _dedupe_candidates(self, candidates):
+        deduped = {}
+        status_rank = {"PENDING": 0, "VERIFIED": 1}
+        verdict_rank = {None: 0, "NEEDS_REVIEW": 1, "UNREACHABLE": 2, "REACHABLE": 3}
+        for cand in candidates:
+            key = (
+                cand.get("file_path"),
+                cand.get("line_number"),
+                cand.get("cwe_id"),
+                cand.get("category"),
+                cand.get("type"),
+            )
+            existing = deduped.get(key)
+            if not existing:
+                deduped[key] = cand
+                continue
+            existing_score = (
+                status_rank.get(existing.get("status"), 0),
+                verdict_rank.get(existing.get("verdict"), 0),
+            )
+            new_score = (
+                status_rank.get(cand.get("status"), 0),
+                verdict_rank.get(cand.get("verdict"), 0),
+            )
+            if new_score < existing_score:
+                deduped[key] = cand
+        return list(deduped.values())
 
     def _find_rule_by_ast(self, lang_rules, ast_pattern):
         for rule in lang_rules:

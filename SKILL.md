@@ -41,17 +41,26 @@ Skill 必须在 R0 阶段探测平台能力，选择执行模式并写入 `.audi
 
 ---
 
-## 🛠️ R0：工具自检 + 平台探测 + 目录守卫
+## 🛠️ R0：依赖 Bootstrap + 工具自检 + 平台探测 + 目录守卫
 
-Skill 启动后**第一步必须**执行以下三件事，任何一步失败即 fail-fast 终止审计：
+Skill 启动后**第一步必须**执行以下四件事，任何一步失败即 fail-fast 终止审计：
 
-1. **AST 工具自检**：运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter` + 有规则语言的对应 grammar 可用，并确认 AST pattern 覆盖率达到阈值。失败绝不允许降级为 LLM 脑补 AST。
-2. **平台模式探测**：按"平台兼容层"表格顺序探测，结果写入 `.audit_results/execution_mode.json`：
+1. **依赖 bootstrap**：优先使用仓库内 `.venv/bin/python3`。若 `.venv` 不存在，先运行 `python3 -m venv .venv`；若 `ast_scanner.py --self-check` 报告 `tree-sitter` 或 grammar 缺失，则在 `.venv` 中安装以下依赖后重试一次：
+   ```bash
+   .venv/bin/python3 -m pip install \
+     tree-sitter tree-sitter-java tree-sitter-cpp tree-sitter-python \
+     tree-sitter-javascript tree-sitter-go tree-sitter-rust tree-sitter-c-sharp \
+     tree-sitter-php tree-sitter-ruby tree-sitter-swift tree-sitter-kotlin \
+     tree-sitter-scala
+   ```
+   不允许把依赖安装到系统 Python；遇到 PEP 668 / externally-managed-environment 时必须改用 `.venv`。Mode B 的 `run_workflow.js` 会优先使用 `.venv/bin/python3`，也可由 `PYTHON_BIN` 覆盖。
+2. **AST 工具自检**：运行 `.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter` + 有规则语言的对应 grammar 可用，并确认 AST pattern 覆盖率达到阈值。失败绝不允许降级为 LLM 脑补 AST。
+3. **平台模式探测**：按"平台兼容层"表格顺序探测，结果写入 `.audit_results/execution_mode.json`：
    ```json
    {"mode": "A_NATIVE_ANTIGRAVITY|A_NATIVE_OPENCODE|B_ANTIGRAVITY_CLI",
     "reason": "...", "detected_at": "ISO8601"}
    ```
-3. **目录守卫（REQ-12 前置守卫）**：`mkdir -p .audit_results/`，所有后续产物（`verify_queue.json` / `extended_sinks.json` / `extended_profile.json` / `execution_mode.json` / `reachable_vulnerabilities_report.{md,json}` / `architecture_view.json`）路径必须以 `.audit_results/` 为前缀。任何对项目源码根目录的直接报告写入视为流程违规，立即终止。同时初始化空的 `verify_queue.json`。**R3 阶段开始时，如果 `.audit_results/verify_queue.json` 不存在或其 `candidates` 为空数组，禁止进入 R3，须回退到 R1 重新扫描。**
+4. **目录守卫（REQ-12 前置守卫）**：`mkdir -p .audit_results/`，所有后续产物（`verify_queue.json` / `extended_sinks.json` / `extended_profile.json` / `execution_mode.json` / `reachable_vulnerabilities_report.{md,json}` / `architecture_view.json`）路径必须以 `.audit_results/` 为前缀。任何对项目源码根目录的直接报告写入视为流程违规，立即终止。同时初始化空的 `verify_queue.json`。**R3 阶段开始时，如果 `.audit_results/verify_queue.json` 不存在或其 `candidates` 为空数组，禁止进入 R3，须回退到 R1 重新扫描。**
    ```json
    {"schema_version": "2.0", "candidates": []}
    ```
@@ -63,7 +72,7 @@ Skill 启动后**第一步必须**执行以下三件事，任何一步失败即 
 加载 `resources/security_profiles.json` 的 `rules.<lang>` 段（L0 规则）。
 
 1. **基准规则对齐**：Agent 首先读取并解析 `resources/security_profiles.json`。`rules.<lang>` 段已由 CodeQL qll 清洗产出（`codeql_revision` 字段记录版本），覆盖 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）。
-2. **混合双层扫描**：运行 `python3 tools/ast_scanner.py <workspace>`（队列**缺省落盘到 `<workspace>/.audit_results/verify_queue.json`**，与 `batch_verify.py` 的读取路径契约一致；如显式传第二参数，脚本会规范到其下的 `.audit_results/` 子目录，**绝不写入源码根目录**，满足 REQ-12）。脚本先用正则粗筛全项目，再用 tree-sitter AST S-expression 精确校验。正则命中但缺乏 AST 校验支撑的候选点降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
+2. **混合双层扫描**：运行 `python3 tools/ast_scanner.py <workspace>`（队列**缺省落盘到 `<workspace>/.audit_results/verify_queue.json`**，与 `batch_verify.py` 的读取路径契约一致；如显式传第二参数，脚本会规范到其下的 `.audit_results/` 子目录，**绝不写入源码根目录**，满足 REQ-12）。脚本用 tree-sitter AST S-expression 命中高置信候选，同时始终保留正则粗筛作为召回兜底。正则命中但缺乏 AST 校验支撑的候选点降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 3. **过滤低风险噪音**：不在 Top-N 规则内的 CWE 类别物理忽略。代码风格、命名规范、非安全场景弱随机数物理过滤。超 1000 字符行强制截断。
 4. **测试/构建代码丢弃**：路径含 `test/`/`tests/`/`mock/`/`tools/`/`build/`/`scripts/`/`vendor/`/`node_modules/`/`third_party/`/`libs/` 的候选直接丢弃，不入队列。该条件语言无关—对所有 15 种预设语言统一生效。
 5. **优先级标记**：每个候选入队时根据 `cwe_id` 标记 `priority` 字段（语言无关）。P0（高严重：RCE/注入/内存破坏/反序列化）→ P1（中严重：跨边界/授权/路径穿越）→ P2（低严重：需上下文判定）。`batch_verify.py` 按优先级出队，确保高价值候选优先验证。
@@ -381,11 +390,11 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
 ## 📋 附录 B：执行流程速查
 
 ```
-R0  工具自检 + 平台探测 + mkdir .audit_results/ + 初始化 verify_queue.json
+R0  依赖 bootstrap + 工具自检 + 平台探测 + mkdir .audit_results/ + 初始化 verify_queue.json
      │  失败即 fail-fast
      ↓
 R1  静态规则扫描 (L0):
-     │  ast_scanner.py 正则粗筛 + tree-sitter AST 校验
+     │  ast_scanner.py tree-sitter AST 高置信命中 + regex 召回兜底
      │  测试/构建/第三方路径候选丢弃 (语言无关)
      │  按 CWE 标记 priority 字段 (P0/P1/P2)
      │  候选入队 origin=L0, priority=0~2, status=PENDING

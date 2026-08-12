@@ -19,7 +19,7 @@
 | :--- | :--- | :--- | :--- |
 | **REQ-01** | 双平台原生 Subagent 拓扑编排 | P0 (Must Have) | 优先使用 `define_subagent`/`invoke_subagent`，opencode 平台降级为 `task`，`agy` CLI 为可选执行路径。 |
 | **REQ-02** | 语言层级 fallback (L0/L1/L2) | P0 (Must Have) | 15 种预设语言直接用 L0；含项目 wrapper 走 L1；非预设语言走 L2 自动生成 extended_profile。 |
-| **REQ-03** | AST 物理工具强制 R0 self-check | P0 (Must Have) | 启动首步必须运行 `ast_scanner.py --self-check`，失败即 fail-fast，拒绝 LLM 脑补 AST。 |
+| **REQ-03** | AST 依赖 bootstrap + 物理工具 R0 self-check | P0 (Must Have) | 启动首步必须使用本地 `.venv` 补齐 tree-sitter grammar 依赖，再运行 `ast_scanner.py --self-check`；失败即 fail-fast，拒绝 LLM 脑补 AST。 |
 | **REQ-04** | 物理过滤低危/规范与三方库噪音 | P0 (Must Have) | 必须在初筛阶段彻底忽略代码风格、命名规范、第三方 `.min.` 压缩库以及超长行代码。 |
 | **REQ-05** | 数据流污点与业务逻辑双轨审计 | P0 (Must Have) | TAINT_ANALYSIS 追 Source→Sink 污染链；PROPERTY_CHECK 识别属主校验缺失/跨边界透传/导出无权等模式。 |
 | **REQ-06** | 双向调用链数据流追踪 | P0 (Must Have) | 自 Sink 向 Source 自底向上回溯，**强制最小深度 3 层**；遇跨进程/跨 DSO/跨 IPC 边界时按 REQ-19 终结判定。 |
@@ -56,8 +56,9 @@
     *   **L2**：项目包含非预设语言（如 Erlang、Haskell、Cobol）。Agent **必须**利用内置安全知识动态生成该语言的 Top 10 高危漏洞映射（仅限 RCE、SQLi、SSRF、越权、反序列化类别），落盘为 `.audit_results/extended_profile.json`，由主 Agent 复核后才并入候选队列，标注 `origin: "L2"`。Mode B 中由 `run_workflow.js` 对非预设源码扩展执行保守通用高危模式扫描，并写入 `reviewed_by: "main-agent"`。
 *   **强制约束**：L2 fallback 产物必须经主 Agent 显式复核签名（在 `extended_profile.json` 中写 `reviewed_by: "main-agent"` 字段）后才能进入 R3 验证队列。
 
-### REQ-03: AST 物理工具强制 R0 self-check 与全语言 AST 对齐
-*   **详细描述**：Skill 启动后第一步（R0 阶段）必须运行 `python3 tools/ast_scanner.py --self-check`，确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `required_grammar_languages`, `grammar_missing`, `grammar_coverage_ok`, `total_rules`, `ast_patterns_coverage_pct`, `ast_coverage_threshold_pct`, `ast_coverage_ok`, `ast_gap_by_language`），self-check 校验规则库加载失败、tree-sitter 不可用、任一有规则语言 grammar 缺失、AST 覆盖率低于阈值（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。全量 15 种预设语言的静态规则须达到 **≥ 95%**（`AST_COVERAGE_THRESHOLD`）的 Tree-Sitter AST S-expression 语法树模式覆盖；self-check 如实输出真实覆盖率与缺口语言清单（`ast_gap_by_language`），低于阈值时置 `ast_coverage_ok=false` 并失败。仅有正则、缺乏 AST S-expression 校验支撑的规则命中时，R1 阶段必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
+### REQ-03: AST 依赖 bootstrap + 物理工具 R0 self-check 与全语言 AST 对齐
+*   **详细描述**：Skill 启动后第一步（R0 阶段）必须先完成本地依赖 bootstrap：优先使用仓库 `.venv/bin/python3`；若 `.venv` 不存在则创建；若 self-check 报告 `tree-sitter` 或有规则语言 grammar 缺失，则在 `.venv` 中安装 `tree-sitter` 及 Java/C++/Python/JavaScript/Go/Rust/C#/PHP/Ruby/Swift/Kotlin/Scala grammar 包后重试一次。不得把依赖安装到系统 Python；遇到 PEP 668 / externally-managed-environment 时必须改用 `.venv`。Mode B 的 `run_workflow.js` 必须执行同等 bootstrap；`PYTHON_BIN` 可显式覆盖 Python 解释器，但覆盖后失败应 fail-fast，不得擅自污染系统环境。
+*   **self-check 要求**：bootstrap 完成后必须运行 `.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `required_grammar_languages`, `grammar_missing`, `grammar_coverage_ok`, `total_rules`, `ast_patterns_coverage_pct`, `ast_coverage_threshold_pct`, `ast_coverage_ok`, `ast_gap_by_language`），self-check 校验规则库加载失败、tree-sitter 不可用、任一有规则语言 grammar 缺失、AST 覆盖率低于阈值（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。全量 15 种预设语言的静态规则须达到 **≥ 95%**（`AST_COVERAGE_THRESHOLD`）的 Tree-Sitter AST S-expression 语法树模式覆盖；self-check 如实输出真实覆盖率与缺口语言清单（`ast_gap_by_language`），低于阈值时置 `ast_coverage_ok=false` 并失败。仅有正则、缺乏 AST S-expression 校验支撑的规则命中时，R1 阶段必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
 *   **详细描述**：初筛与审计阶段必须物理忽略：未采用驼峰命名、缺失文件注释、非安全场景弱随机数、代码风格违规等规范类问题。同时必须自动识别并过滤第三方压缩/混淆库（文件名含 `.min.`、路径组件为 `vendor/`、`node_modules/`、`third_party/`、`libs/` 等典型路径），匹配行长度超过 1000 字符强制截断并标注 `... [TRUNCATED]` 以防空提示词触发模型安全策略或导致子会话挂起。路径过滤必须按相对路径组件判断，禁止用绝对路径子串匹配，以免工作区名包含 `build` 等词时整库误跳过。
@@ -171,7 +172,7 @@
 | :--- | :--- | :--- | :--- |
 | REQ-01 | 单一 `define_subagent`/`agy` | 双平台兼容 + `agy` 可选 | opencode 平台无 `define_subagent`，需降级；保留 Antigravity 兼容 |
 | REQ-02 | 严格白名单，拒绝审计 | L0/L1/L2 层级 fallback | pre-v2 与 SKILL.md Fallback 段自相矛盾 |
-| REQ-03 | 提及但未强制 | R0 强制 self-check，失败 fail-fast | ast_scanner.py 从未被调用，REQ-03 形同虚设 |
+| REQ-03 | 提及但未强制 | R0 依赖 bootstrap + 强制 self-check，失败 fail-fast | ast_scanner.py 从未被调用，REQ-03 形同虚设；系统 Python 受 PEP 668 管理时必须自动改用 `.venv` |
 | REQ-05 | PROPERTY_CHECK 粗关键字 | 4 类模式识别 | `admin/manage/delete` 关键字毫无意义 |
 | REQ-06 | 要求本仓库闭环 | 跨边界按 REQ-19 终结 | MAP SQL 注入 sink 在外部 Provider，pre-v2 必漏报 |
 | REQ-09 | 提及但未落盘 | verify_queue 状态机强制落盘 | pre-v2 两次审计均未生成 verify_queue.json |

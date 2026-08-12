@@ -1,7 +1,7 @@
 {
   "schema_version": "6.3",
   "comment": "从 GitHub CodeQL 官方安全模型中清洗提炼出的 Top 15 语言 Top 10 漏洞 Sink 函数库。涵盖 Python, C++, Java, JavaScript, C#, Go, Rust, PHP, Ruby, Swift, Kotlin, Scala, Shell, Perl, PowerShell。",
-  "manual_patch_note": "6.3: ast_patterns 修正与补齐（非 CodeQL 重清洗，codeql_revision 不变）。(1) 补齐 java/php/ruby/go/rust/cpp/csharp/swift/kotlin/scala 缺失的 ast_patterns，AST 字段覆盖率 67.5%→100%。(2) 修复 40+ 条仓库原有的编译失败 pattern：kotlin/scala 误用 Java 节点名(method_invocation/object_creation_expression → call_expression/navigation_expression/field_expression)；rust 误用 Go 节点(selector_expression → field_expression/scoped_identifier)；python 的 (call (attribute)) 缺 function: 字段；js 的 argument_list/object_creation_expression 节点名错；csharp 字段名大小写错。(3) 放宽 Python CWE-89 execute 类召回。约束：所有 pattern 均经 tree-sitter 编译+正样例命中双重验证；无法通过验证者保持 regex-only，绝不以坏 pattern 充数覆盖率。12 种带 grammar 语言共 187 条 pattern 验证零失败。",
+  "manual_patch_note": "6.3: ast_patterns 修正与补齐（非 CodeQL 重清洗，codeql_revision 不变）。(1) 补齐 java/php/ruby/go/rust/cpp/csharp/swift/kotlin/scala 缺失的 ast_patterns，AST 字段覆盖率 67.5%→100%。(2) 修复 40+ 条仓库原有的编译失败 pattern：kotlin/scala 误用 Java 节点名(method_invocation/object_creation_expression → call_expression/navigation_expression/field_expression)；rust 误用 Go 节点(selector_expression → field_expression/scoped_identifier)；python 的 (call (attribute)) 缺 function: 字段；js 的 argument_list/object_creation_expression 节点名错；csharp 字段名大小写错。(3) 放宽 Python CWE-89 execute 类召回，补齐 Python CWE-78 os.system/os.popen AST 召回。约束：所有 pattern 均经 tree-sitter 编译+正样例命中双重验证；无法通过验证者保持 regex-only，绝不以坏 pattern 充数覆盖率。12 种带 grammar 语言共 188 条 pattern 验证零失败。",
   "rules": {
     "java": [
       {
@@ -1948,7 +1948,8 @@
             "os\\.popen"
           ],
           "ast_patterns": [
-            "(call function: (attribute object: (identifier) @pkg (#eq? @pkg \"subprocess\") attribute: (identifier) @fn (#match? @fn \"^(run|Popen|call)$\")))"
+            "(call function: (attribute object: (identifier) @pkg (#eq? @pkg \"subprocess\") attribute: (identifier) @fn (#match? @fn \"^(run|Popen|call)$\")))",
+            "(call function: (attribute object: (identifier) @pkg (#eq? @pkg \"os\") attribute: (identifier) @fn (#match? @fn \"^(system|popen)$\")))"
           ]
         },
         "sources": {
@@ -2131,10 +2132,10 @@
         "codeql_model": "manual-heuristic (CodeQL 未提取, 保留人工 AST/regex)",
         "sinks": {
           "regex": [
-            "post",
-            "put",
-            "delete",
-            "route"
+            "\\bpost\\s*\\(",
+            "\\bput\\s*\\(",
+            "\\bdelete\\s*\\(",
+            "\\broute\\s*\\("
           ],
           "ast_patterns": [
             "(call function: (identifier) @func (#match? @func \"^(post|put|delete|route)$\"))"

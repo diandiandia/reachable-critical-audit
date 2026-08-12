@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, execFileSync } = require('child_process');
 
 /**
  * Reachable Critical Audit - CLI Workflow Orchestrator (Node.js)
@@ -99,6 +99,68 @@ const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '4', 10);
 
 // CLI 单次执行超时（毫秒，默认 5 分钟）
 const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || '300000', 10);
+
+const TREE_SITTER_DEPS = [
+    'tree-sitter',
+    'tree-sitter-java',
+    'tree-sitter-cpp',
+    'tree-sitter-python',
+    'tree-sitter-javascript',
+    'tree-sitter-go',
+    'tree-sitter-rust',
+    'tree-sitter-c-sharp',
+    'tree-sitter-php',
+    'tree-sitter-ruby',
+    'tree-sitter-swift',
+    'tree-sitter-kotlin',
+    'tree-sitter-scala'
+];
+
+let PYTHON_BIN_CACHE = null;
+
+function venvPythonPath() {
+    return path.join(__dirname, '.venv', 'bin', 'python3');
+}
+
+function pythonBin() {
+    if (PYTHON_BIN_CACHE) return PYTHON_BIN_CACHE;
+    if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
+    const venvPython = venvPythonPath();
+    return fs.existsSync(venvPython) ? venvPython : 'python3';
+}
+
+function ensureWorkflowPython() {
+    if (process.env.PYTHON_BIN) {
+        PYTHON_BIN_CACHE = process.env.PYTHON_BIN;
+        return PYTHON_BIN_CACHE;
+    }
+
+    const venvPython = venvPythonPath();
+    if (!fs.existsSync(venvPython)) {
+        console.log(`${colors.blue}[*] 未发现 .venv，创建本地 Python 虚拟环境...${colors.reset}`);
+        execFileSync('python3', ['-m', 'venv', path.join(__dirname, '.venv')], { stdio: 'inherit' });
+    }
+    PYTHON_BIN_CACHE = venvPython;
+    return PYTHON_BIN_CACHE;
+}
+
+function installTreeSitterDeps(pyBin) {
+    console.log(`${colors.blue}[*] 安装 tree-sitter grammar 依赖到 .venv...${colors.reset}`);
+    execFileSync(pyBin, ['-m', 'pip', 'install', ...TREE_SITTER_DEPS], { stdio: 'inherit' });
+}
+
+function runAstSelfCheck(scannerPath) {
+    const pyBin = ensureWorkflowPython();
+    try {
+        execFileSync(pyBin, [scannerPath, '--self-check'], { stdio: 'inherit' });
+    } catch (error) {
+        if (process.env.PYTHON_BIN) {
+            throw error;
+        }
+        installTreeSitterDeps(pyBin);
+        execFileSync(pyBin, [scannerPath, '--self-check'], { stdio: 'inherit' });
+    }
+}
 
 // ==================== 子进程执行引擎 ====================
 
@@ -834,7 +896,7 @@ async function executeWorkflow(workspacePath) {
 
     console.log(`${colors.blue}[*] R0: AST 工具自检...${colors.reset}`);
     try {
-        execSync(`python3 "${scannerPath}" --self-check`, { stdio: 'inherit' });
+        runAstSelfCheck(scannerPath);
     } catch (error) {
         console.error(`${colors.red}[FATAL] R0 self-check 失败，流程终止。请先安装 tree-sitter 依赖并确认规则库可加载。${colors.reset}`);
         process.exit(1);
@@ -859,7 +921,7 @@ async function executeWorkflow(workspacePath) {
     } else {
         console.log(`${colors.blue}[*] 未发现历史队列，启动 AST 扫描...${colors.reset}`);
         try {
-            execSync(`python3 "${scannerPath}" "${workspacePath}" "${outputDir}"`, { stdio: 'inherit' });
+            execFileSync(pythonBin(), [scannerPath, workspacePath, outputDir], { stdio: 'inherit' });
             queueObj = loadQueue(queuePath);
             normalizeQueueState(queueObj.candidates);
             saveQueue(queuePath, queueObj.raw, queueObj.candidates);
