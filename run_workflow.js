@@ -118,8 +118,12 @@ const TREE_SITTER_DEPS = [
 
 let PYTHON_BIN_CACHE = null;
 
+function skillVenvDir() {
+    return process.env.REACHABLE_AUDIT_VENV || path.join(__dirname, '.venv');
+}
+
 function venvPythonPath() {
-    return path.join(__dirname, '.venv', 'bin', 'python3');
+    return path.join(skillVenvDir(), 'bin', 'python3');
 }
 
 function pythonBin() {
@@ -137,15 +141,16 @@ function ensureWorkflowPython() {
 
     const venvPython = venvPythonPath();
     if (!fs.existsSync(venvPython)) {
-        console.log(`${colors.blue}[*] 未发现 .venv，创建本地 Python 虚拟环境...${colors.reset}`);
-        execFileSync('python3', ['-m', 'venv', path.join(__dirname, '.venv')], { stdio: 'inherit' });
+        const venvDir = skillVenvDir();
+        console.log(`${colors.blue}[*] 未发现 skill-local .venv，创建 Python 虚拟环境: ${venvDir}${colors.reset}`);
+        execFileSync('python3', ['-m', 'venv', venvDir], { stdio: 'inherit' });
     }
     PYTHON_BIN_CACHE = venvPython;
     return PYTHON_BIN_CACHE;
 }
 
 function installTreeSitterDeps(pyBin) {
-    console.log(`${colors.blue}[*] 安装 tree-sitter grammar 依赖到 .venv...${colors.reset}`);
+    console.log(`${colors.blue}[*] 安装 tree-sitter grammar 依赖到 skill-local .venv...${colors.reset}`);
     execFileSync(pyBin, ['-m', 'pip', 'install', ...TREE_SITTER_DEPS], { stdio: 'inherit' });
 }
 
@@ -519,8 +524,9 @@ const R15_EXT_LANG = {
     '.kt': 'kotlin', '.kts': 'kotlin', '.scala': 'scala', '.sh': 'shell',
     '.pl': 'perl', '.pm': 'perl', '.ps1': 'powershell'
 };
-const R15_IGNORE_DIRS = ['node_modules', '.git', '.audit_results', 'build', 'target',
-    'dist', 'vendor', 'third_party', 'libs', 'test', 'tests'];
+const R15_IGNORE_DIRS = ['node_modules', '.git', '.audit_results', '.agents', '.codex',
+    '.venv', '__pycache__', 'reachable-critical-audit', 'build', 'target', 'dist',
+    'vendor', 'third_party', 'libs', 'test', 'tests', 'demo'];
 const L2_NON_SOURCE_EXTS = new Set([
     '', '.md', '.txt', '.json', '.lock', '.yaml', '.yml', '.toml', '.xml',
     '.html', '.css', '.csv', '.tsv', '.svg', '.png', '.jpg', '.jpeg', '.gif',
@@ -1254,7 +1260,9 @@ function findHighRiskModules(workspacePath) {
         'admin', 'manage', 'role', 'permission',
         'user', 'profile', 'account', 'service', 'provider', 'manager'
     ];
-    const ignoreDirs = ['node_modules', '.git', '.audit_results', 'scratch', 'target', 'build', 'dist', 'vendor', 'third_party'];
+    const ignoreDirs = ['node_modules', '.git', '.audit_results', '.agents', '.codex',
+        '.venv', '__pycache__', 'reachable-critical-audit', 'scratch', 'target',
+        'build', 'dist', 'vendor', 'third_party'];
 
     function walk(dir, depth) {
         if (depth > 5) return; // 限制递归深度
@@ -1460,4 +1468,6 @@ module.exports = {
     compileReport,
     loadL2FallbackRules,
     normalizeVerifierResult,
+    skillVenvDir,
+    venvPythonPath,
 };

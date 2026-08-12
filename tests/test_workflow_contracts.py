@@ -178,6 +178,42 @@ wf.compileReport([
         payload = json.loads(result.stdout)
         self.assertEqual(payload["mode"], "A_NATIVE_ANTIGRAVITY")
 
+    def test_workflow_venv_can_be_overridden_without_project_venv(self):
+        script = """
+const wf = require(process.argv[1]);
+console.log(JSON.stringify({
+  venvDir: wf.skillVenvDir(),
+  python: wf.venvPythonPath()
+}));
+"""
+        env = os.environ.copy()
+        env["REACHABLE_AUDIT_VENV"] = "/tmp/reachable-audit-test-venv"
+        result = subprocess.run(
+            ["node", "-e", script, str(REPO_ROOT / "run_workflow.js")],
+            text=True,
+            capture_output=True,
+            check=True,
+            env=env,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["venvDir"], "/tmp/reachable-audit-test-venv")
+        self.assertEqual(payload["python"], "/tmp/reachable-audit-test-venv/bin/python3")
+
+    def test_scanner_ignores_skill_and_venv_paths(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "ast_scanner", REPO_ROOT / "tools" / "ast_scanner.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        ignored = module.ASTCoarseScanner._is_ignored_path
+        self.assertTrue(ignored(".agents/skills/reachable-critical-audit/tools/ast_scanner.py"))
+        self.assertTrue(ignored(".venv/lib/python/site-packages/pkg.py"))
+        self.assertTrue(ignored(".codex/skills/reachable-critical-audit/SKILL.md"))
+        self.assertFalse(ignored("src/service/auth.py"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -51,8 +51,10 @@ _EXT_LANG = {
     ".kt": "kotlin", ".kts": "kotlin", ".scala": "scala", ".sh": "shell",
     ".pl": "perl", ".pm": "perl", ".ps1": "powershell",
 }
-_R15_IGNORE_DIRS = {"node_modules", ".git", ".audit_results", "build", "target",
-                    "dist", "vendor", "third_party", "libs", "test", "tests"}
+_R15_IGNORE_DIRS = {"node_modules", ".git", ".audit_results", ".agents", ".codex",
+                    ".venv", "__pycache__", "reachable-critical-audit", "build",
+                    "target", "dist", "vendor", "third_party", "libs", "test",
+                    "tests"}
 
 
 def _profile_path():

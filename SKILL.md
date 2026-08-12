@@ -45,16 +45,16 @@ Skill 必须在 R0 阶段探测平台能力，选择执行模式并写入 `.audi
 
 Skill 启动后**第一步必须**执行以下四件事，任何一步失败即 fail-fast 终止审计：
 
-1. **依赖 bootstrap**：优先使用仓库内 `.venv/bin/python3`。若 `.venv` 不存在，先运行 `python3 -m venv .venv`；若 `ast_scanner.py --self-check` 报告 `tree-sitter` 或 grammar 缺失，则在 `.venv` 中安装以下依赖后重试一次：
+1. **依赖 bootstrap**：优先使用 **skill 安装目录** 下的 `.venv/bin/python3`。若该 `.venv` 不存在，先运行 `python3 -m venv <skill_dir>/.venv`；若 `ast_scanner.py --self-check` 报告 `tree-sitter` 或 grammar 缺失，则在 skill-local `.venv` 中安装以下依赖后重试一次：
    ```bash
-   .venv/bin/python3 -m pip install \
+   <skill_dir>/.venv/bin/python3 -m pip install \
      tree-sitter tree-sitter-java tree-sitter-cpp tree-sitter-python \
      tree-sitter-javascript tree-sitter-go tree-sitter-rust tree-sitter-c-sharp \
      tree-sitter-php tree-sitter-ruby tree-sitter-swift tree-sitter-kotlin \
      tree-sitter-scala
    ```
-   不允许把依赖安装到系统 Python；遇到 PEP 668 / externally-managed-environment 时必须改用 `.venv`。Mode B 的 `run_workflow.js` 会优先使用 `.venv/bin/python3`，也可由 `PYTHON_BIN` 覆盖。
-2. **AST 工具自检**：运行 `.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter` + 有规则语言的对应 grammar 可用，并确认 AST pattern 覆盖率达到阈值。失败绝不允许降级为 LLM 脑补 AST。
+   不允许在被审计项目根目录创建 `.venv`，不允许把依赖安装到系统 Python；遇到 PEP 668 / externally-managed-environment 时必须改用 skill-local `.venv`。Mode B 的 `run_workflow.js` 会优先使用 skill 安装目录下的 `.venv/bin/python3`；也可由 `REACHABLE_AUDIT_VENV` 覆盖 venv 目录，或由 `PYTHON_BIN` 覆盖解释器。
+2. **AST 工具自检**：运行 `<skill_dir>/.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter` + 有规则语言的对应 grammar 可用，并确认 AST pattern 覆盖率达到阈值。失败绝不允许降级为 LLM 脑补 AST。
 3. **平台模式探测**：按"平台兼容层"表格顺序探测，结果写入 `.audit_results/execution_mode.json`：
    ```json
    {"mode": "A_NATIVE_ANTIGRAVITY|A_NATIVE_OPENCODE|B_ANTIGRAVITY_CLI",
@@ -74,7 +74,7 @@ Skill 启动后**第一步必须**执行以下四件事，任何一步失败即 
 1. **基准规则对齐**：Agent 首先读取并解析 `resources/security_profiles.json`。`rules.<lang>` 段已由 CodeQL qll 清洗产出（`codeql_revision` 字段记录版本），覆盖 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）。
 2. **混合双层扫描**：运行 `python3 tools/ast_scanner.py <workspace>`（队列**缺省落盘到 `<workspace>/.audit_results/verify_queue.json`**，与 `batch_verify.py` 的读取路径契约一致；如显式传第二参数，脚本会规范到其下的 `.audit_results/` 子目录，**绝不写入源码根目录**，满足 REQ-12）。脚本用 tree-sitter AST S-expression 命中高置信候选，同时始终保留正则粗筛作为召回兜底。正则命中但缺乏 AST 校验支撑的候选点降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 3. **过滤低风险噪音**：不在 Top-N 规则内的 CWE 类别物理忽略。代码风格、命名规范、非安全场景弱随机数物理过滤。超 1000 字符行强制截断。
-4. **测试/构建代码丢弃**：路径含 `test/`/`tests/`/`mock/`/`tools/`/`build/`/`scripts/`/`vendor/`/`node_modules/`/`third_party/`/`libs/` 的候选直接丢弃，不入队列。该条件语言无关—对所有 15 种预设语言统一生效。
+4. **测试/构建/工具代码丢弃**：路径含 `test/`/`tests/`/`mock/`/`tools/`/`build/`/`scripts/`/`vendor/`/`node_modules/`/`third_party/`/`libs/`/`.agents/`/`.codex/`/`.venv/`/`reachable-critical-audit/` 的候选直接丢弃，不入队列。该条件语言无关—对所有 15 种预设语言统一生效，避免审计 skill 自身或其依赖环境。
 5. **优先级标记**：每个候选入队时根据 `cwe_id` 标记 `priority` 字段（语言无关）。P0（高严重：RCE/注入/内存破坏/反序列化）→ P1（中严重：跨边界/授权/路径穿越）→ P2（低严重：需上下文判定）。`batch_verify.py` 按优先级出队，确保高价值候选优先验证。
 6. **入队**：每个命中候选写入 `verify_queue.json` 的 `candidates[]`，`origin` 字段标记 `L0`：
    ```json

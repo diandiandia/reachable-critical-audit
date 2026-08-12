@@ -89,9 +89,10 @@ Agent 会自动执行 R0 平台探测选择执行模式(opencode 上自动走 `t
 
 ## 🧰 本地依赖
 
-R0 自检依赖 `tree-sitter` 及 12 个有规则语言的 grammar 包。推荐安装到仓库虚拟环境，避免系统 Python 的 PEP 668 限制：
+R0 自检依赖 `tree-sitter` 及 12 个有规则语言的 grammar 包。依赖应安装到 **skill 安装目录** 下的 `.venv`，不要在被审计项目根目录创建虚拟环境，也不要安装到系统 Python：
 
 ```bash
+cd /path/to/reachable-critical-audit
 python3 -m venv .venv
 .venv/bin/python3 -m pip install \
   tree-sitter tree-sitter-java tree-sitter-cpp tree-sitter-python \
@@ -101,7 +102,7 @@ python3 -m venv .venv
 .venv/bin/python3 tools/ast_scanner.py --self-check
 ```
 
-`run_workflow.js` 会优先使用仓库内 `.venv/bin/python3`；也可用 `PYTHON_BIN=/path/to/python3` 显式覆盖。
+`run_workflow.js` 会优先使用 skill 安装目录内的 `.venv/bin/python3`；也可用 `REACHABLE_AUDIT_VENV=/path/to/venv` 覆盖 venv 目录，或用 `PYTHON_BIN=/path/to/python3` 显式覆盖解释器。
 
 ---
 

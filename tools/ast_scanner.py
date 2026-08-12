@@ -534,6 +534,7 @@ class ASTCoarseScanner:
         "test", "tests", "mock", "mocks", "unittest", "mockcify",
         "tools", "tool", "build", "scripts", "scratch", "target", "dist",
         "node_modules", "vendor", "third_party", "libs", ".git", ".audit_results",
+        ".agents", ".codex", ".venv", "__pycache__", "reachable-critical-audit",
     }
 
     @classmethod
