@@ -122,17 +122,25 @@ python3 tools/codeql_sink_extractor.py --codeql-tag codeql-bundle-v2.18.0 \
 python3 tools/codeql_sink_extractor.py --codeql-path /path/to/codeql \
     --output resources/security_profiles.json
 
+# 只刷新指定语言（推荐用于修复单语言规则质量，避免扰动全量 profile）
+python3 tools/codeql_sink_extractor.py --codeql-path /path/to/codeql \
+    --output resources/security_profiles.json \
+    --replace-langs go,swift
+
 # Dry-run: 仅打印提取结果到 stdout,不写 JSON
 python3 tools/codeql_sink_extractor.py --dry-run
 ```
 
 清洗流程:
 1. 克隆固定 tag 的 CodeQL 仓库
-2. 自动扫描各语言 `ql/lib/semmle/<lang>/security/` 目录及 `dataflow/` 子目录
-3. 按 CWE 关键字匹配文件名(`*sql*injection*` / `*uncontrolled*allocation*` / `*flow*after*free*` 等)
-4. 用 `hasGlobalName("xxx")` / `hasName([...])` / `getMethod("xxx")` 等正则提取 sink 函数名
-5. 写入 `rules.<lang>` 段,记录 `codeql_revision` 字段
-6. 保留 `manual_additions` / `wrapper_detection` / `property_check_patterns` 段不动(手工维护)
+2. 自动扫描各语言 CodeQL security/model 目录：旧式 `.qll`、现代 `.model.yml` Models-as-Data、Swift `SinkModelCsv`
+3. 按 CodeQL sink kind / CWE 归类高危 sink
+4. 对 Go 保留 MaD 的 `package/type/method/access_path`，写入 `sinks.go_models`
+5. 对 Swift 保留 `type/signature/access_path/sink_kind`，写入 `sinks.swift_models`
+6. 写入 `rules.<lang>` 段,记录 `codeql_revision` 字段
+7. 保留 `manual_additions` / `wrapper_detection` / `property_check_patterns` 段不动(手工维护)
+
+Go/Swift 规则不得退化成裸方法名匹配。`ast_scanner.py` 对带 `go_models` / `swift_models` 的规则优先执行结构化上下文匹配；这类规则的宽泛 regex 仅作为可审计配置保留，不作为初筛主路径。
 
 手工补丁段(`manual_additions`)用于覆盖 CodeQL 不识别的项目特定 sink,每条必须标注 `source_reason`。
 

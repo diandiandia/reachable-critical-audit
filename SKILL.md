@@ -1,6 +1,6 @@
 ---
 name: reachable-critical-audit
-description: 专门针对项目进行严重漏洞（RCE, SQLi, SSRF, Bypasses, UAF, OOB, 未控内存分配）的可达性分析审计。五阶段漏斗模型（R0 工具自检 + R1 静态规则 + R1.5 框架感知扩展 + R3 双向回溯 + R4 业务逻辑深钻），双平台兼容（Antigravity define_subagent / opencode task / agy CLI 可选），规则库源自 CodeQL 官方 qll 清洗 + 项目 wrapper 自识别。忽略代码规范、弱随机数等低风险噪音。
+description: 专门针对项目进行严重漏洞（RCE, SQLi, SSRF, Bypasses, UAF, OOB, 未控内存分配）的可达性分析审计。五阶段漏斗模型（R0 工具自检 + R1 静态规则 + R1.5 框架感知扩展 + R3 双向回溯 + R4 业务逻辑深钻），双平台兼容（Antigravity define_subagent / opencode task / agy CLI 可选），规则库源自 CodeQL 官方模型清洗 + 项目 wrapper 自识别。忽略代码规范、弱随机数等低风险噪音。
 ---
 
 # Reachable Critical Audit Skill v2 (可达性严重漏洞审计)
@@ -14,7 +14,7 @@ description: 专门针对项目进行严重漏洞（RCE, SQLi, SSRF, Bypasses, U
 
 - **无 Key 自治**：完全使用 Agent 自身的 LLM 能力与本地工具，无需任何第三方大模型 API Key。
 - **双平台兼容**：保留 Antigravity `define_subagent`/`invoke_subagent` + `agy` CLI，自动降级到 opencode `task` 工具。
-- **CodeQL 双源规则库**：规则源自 CodeQL 官方 qll 清洗（L0）+ 项目 wrapper 自识别（L1）+ 非预设语言生成（L2）。
+- **CodeQL 双源规则库**：规则源自 CodeQL 官方模型清洗（L0，含 `.qll` / `.model.yml` / Swift `SinkModelCsv`）+ 项目 wrapper 自识别（L1）+ 非预设语言生成（L2）。
 - **跨边界 sink 终结**：调用链到达 IPC/DSO/Provider 边界即判定 sink 达成，不要求追溯外部实现。
 - **量化指标可问责**：区分 L0/L1/L2 候选来源，Sink Discovery Rate 量化规则库盲区。
 
@@ -71,8 +71,8 @@ Skill 启动后**第一步必须**执行以下四件事，任何一步失败即 
 
 加载 `resources/security_profiles.json` 的 `rules.<lang>` 段（L0 规则）。
 
-1. **基准规则对齐**：Agent 首先读取并解析 `resources/security_profiles.json`。`rules.<lang>` 段已由 CodeQL qll 清洗产出（`codeql_revision` 字段记录版本），覆盖 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）。
-2. **混合双层扫描**：运行 `python3 tools/ast_scanner.py <workspace>`（队列**缺省落盘到 `<workspace>/.audit_results/verify_queue.json`**，与 `batch_verify.py` 的读取路径契约一致；如显式传第二参数，脚本会规范到其下的 `.audit_results/` 子目录，**绝不写入源码根目录**，满足 REQ-12）。脚本用 tree-sitter AST S-expression 命中高置信候选，同时始终保留正则粗筛作为召回兜底。正则命中但缺乏 AST 校验支撑的候选点降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
+1. **基准规则对齐**：Agent 首先读取并解析 `resources/security_profiles.json`。`rules.<lang>` 段已由 CodeQL 模型清洗产出（`codeql_revision` 字段记录版本），覆盖 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）。Go 规则必须检查 `sinks.go_models[]`，Swift 规则必须检查 `sinks.swift_models[]`；这两类结构化模型来自 CodeQL MaD / Swift `SinkModelCsv`。
+2. **混合双层扫描**：运行 `python3 tools/ast_scanner.py <workspace>`（队列**缺省落盘到 `<workspace>/.audit_results/verify_queue.json`**，与 `batch_verify.py` 的读取路径契约一致；如显式传第二参数，脚本会规范到其下的 `.audit_results/` 子目录，**绝不写入源码根目录**，满足 REQ-12）。脚本用 tree-sitter AST S-expression 或 Go/Swift 结构化模型上下文命中候选，同时保留正则粗筛作为召回兜底。Go/Swift 结构化规则不得用裸 `Exec` / `Query` / `init` / `write` regex 作为高置信初筛；正则命中但缺乏 AST/结构化上下文支撑的候选点降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 3. **过滤低风险噪音**：不在 Top-N 规则内的 CWE 类别物理忽略。代码风格、命名规范、非安全场景弱随机数物理过滤。超 1000 字符行强制截断。
 4. **测试/构建/工具代码丢弃**：路径含 `test/`/`tests/`/`mock/`/`tools/`/`build/`/`scripts/`/`vendor/`/`node_modules/`/`third_party/`/`libs/`/`.agents/`/`.codex/`/`.venv/`/`reachable-critical-audit/` 的候选直接丢弃，不入队列。该条件语言无关—对所有 15 种预设语言统一生效，避免审计 skill 自身或其依赖环境。
 5. **优先级标记**：每个候选入队时根据 `cwe_id` 标记 `priority` 字段（语言无关）。P0（高严重：RCE/注入/内存破坏/反序列化）→ P1（中严重：跨边界/授权/路径穿越）→ P2（低严重：需上下文判定）。`batch_verify.py` 按优先级出队，确保高价值候选优先验证。

@@ -27,7 +27,7 @@
 | **REQ-08** | 特权提升可利用性分析 | P0 (Must Have) | 针对特权切换 Sink，判定提权后动作参数是否仍混入低特权用户可控变量。 |
 | **REQ-09** | verify_queue 状态机与断点硬校验 | P0 (Must Have) | 候选入队 → 分批并发 → 每批强制落盘 → 状态机 PENDING/VERIFIED/REACHABLE/UNREACHABLE/NEEDS_REVIEW → Assert 兜底。 |
 | **REQ-10** | 审计漏斗量化度量 (L0/L1/L2 区分) | P1 (Should Have) | Coverage/Reachability/Noise Reduction 三率 + Sink Discovery Rate + False Negative Risk，分母按 L0+L1+L2 合计。 |
-| **REQ-11** | 声明式静态配置 + CodeQL 双源 | P0 (Must Have) | `security_profiles.json` 必须源自 CodeQL qll 清洗（L0），并支持 `wrapper_detection` 配置驱动的 L1 扩展。 |
+| **REQ-11** | 声明式静态配置 + CodeQL 双源 | P0 (Must Have) | `security_profiles.json` 必须源自 CodeQL 模型清洗（L0），并支持 `wrapper_detection` 配置驱动的 L1 扩展。 |
 | **REQ-12** | 物理文件隔离前置守卫 | P0 (Must Have) | R0 阶段 `mkdir .audit_results/`，任何报告/中间产物路径必须以此为前缀；违反即流程失败。 |
 | **REQ-13** | 有向自主逻辑漏洞探索 | P1 (Should Have) | 静态规则审计后扫描高危业务模块，模糊提示词并发自主威胁建模。 |
 | **REQ-14** | 启发式项目架构与业务域自动感知 | P0 (Must Have) | 解析 README/Manifest/Proto/AIDL 自动判别业务领域。 |
@@ -58,7 +58,7 @@
 
 ### REQ-03: AST 依赖 bootstrap + 物理工具 R0 self-check 与全语言 AST 对齐
 *   **详细描述**：Skill 启动后第一步（R0 阶段）必须先完成本地依赖 bootstrap：优先使用 **skill 安装目录** 下的 `.venv/bin/python3`；若该 `.venv` 不存在则创建；若 self-check 报告 `tree-sitter` 或有规则语言 grammar 缺失，则在 skill-local `.venv` 中安装 `tree-sitter` 及 Java/C++/Python/JavaScript/Go/Rust/C#/PHP/Ruby/Swift/Kotlin/Scala grammar 包后重试一次。不得在被审计项目根目录创建 `.venv`，不得把依赖安装到系统 Python；遇到 PEP 668 / externally-managed-environment 时必须改用 skill-local `.venv`。Mode B 的 `run_workflow.js` 必须执行同等 bootstrap；`REACHABLE_AUDIT_VENV` 可显式覆盖 skill-local venv 目录，`PYTHON_BIN` 可显式覆盖 Python 解释器，但覆盖后失败应 fail-fast，不得擅自污染系统环境。
-*   **self-check 要求**：bootstrap 完成后必须运行 `<skill_dir>/.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `required_grammar_languages`, `grammar_missing`, `grammar_coverage_ok`, `total_rules`, `ast_patterns_coverage_pct`, `ast_coverage_threshold_pct`, `ast_coverage_ok`, `ast_gap_by_language`），self-check 校验规则库加载失败、tree-sitter 不可用、任一有规则语言 grammar 缺失、AST 覆盖率低于阈值（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。全量 15 种预设语言的静态规则须达到 **≥ 95%**（`AST_COVERAGE_THRESHOLD`）的 Tree-Sitter AST S-expression 语法树模式覆盖；self-check 如实输出真实覆盖率与缺口语言清单（`ast_gap_by_language`），低于阈值时置 `ast_coverage_ok=false` 并失败。仅有正则、缺乏 AST S-expression 校验支撑的规则命中时，R1 阶段必须将初始状态降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
+*   **self-check 要求**：bootstrap 完成后必须运行 `<skill_dir>/.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `required_grammar_languages`, `grammar_missing`, `grammar_coverage_ok`, `total_rules`, `coverage_rule_count`, `manual_review_regex_rules`, `ast_patterns_coverage_pct`, `ast_coverage_threshold_pct`, `ast_coverage_ok`, `ast_gap_by_language`），self-check 校验规则库加载失败、tree-sitter 不可用、任一有规则语言 grammar 缺失、机器覆盖率低于阈值（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。CodeQL L0 规则须达到 **≥ 95%**（`AST_COVERAGE_THRESHOLD`）的机器可校验支撑：Tree-Sitter AST S-expression 或 Go/Swift 结构化模型（`go_models` / `swift_models`）。`manual_additions` 中带 `source_reason` 且无 `codeql_model` 的人工补丁不计入覆盖率分母，单独计入 `manual_review_regex_rules`；这类 regex-only 命中必须在 R1/R3 降级复核，不能直接计入 REACHABLE 候选。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
 *   **详细描述**：初筛与审计阶段必须物理忽略：未采用驼峰命名、缺失文件注释、非安全场景弱随机数、代码风格违规等规范类问题。同时必须自动识别并过滤第三方压缩/混淆库（文件名含 `.min.`、路径组件为 `vendor/`、`node_modules/`、`third_party/`、`libs`、`.agents`、`.codex`、`.venv`、`reachable-critical-audit` 等典型路径），匹配行长度超过 1000 字符强制截断并标注 `... [TRUNCATED]` 以防空提示词触发模型安全策略或导致子会话挂起。路径过滤必须按相对路径组件判断，禁止用绝对路径子串匹配，以免工作区名包含 `build` 等词时整库误跳过。
@@ -109,7 +109,7 @@
 
 ### REQ-11: 声明式静态配置 + CodeQL 双源
 *   **详细描述**：规则库 `security_profiles.json` 必须满足双源约束：
-    *   **L0 源 = CodeQL 官方 qll 模型清洗**：清洗过程由 REQ-20 的 `codeql_sink_extractor.py` 完成，可重现。
+    *   **L0 源 = CodeQL 官方模型清洗**：清洗过程由 REQ-20 的 `codeql_sink_extractor.py` 完成，可重现；来源包括旧式 `.qll`、现代 `.model.yml` Models-as-Data、Swift `SinkModelCsv`。
     *   **L1 源 = 项目 wrapper_detection**：`security_profiles.json` 内必须包含 `wrapper_detection` 段，描述如何让 R1.5 阶段识别项目自有 sink wrapper。
     *   **PROPERTY_CHECK 模式段**：包含 4 类逻辑/属性校验模式的结构化定义。
     *   **手工补丁段**：CodeQL 不覆盖但必须纳入的 sink，单独列在 `manual_additions` 段。
@@ -158,12 +158,13 @@
 *   **强制约束**：pre-v2 要求"本仓库内闭环"导致 framework 项目（如 Android Bluetooth MAP）必漏报，本规则正式放松该约束。
 
 ### REQ-20: CodeQL 模型清洗工具与可重现更新
-*   **详细描述**：提供 `tools/codeql_sink_extractor.py`，从 CodeQL qll 文件提取 sink/source 函数名写入 `security_profiles.json`。清洗流程必须可重现：
+*   **详细描述**：提供 `tools/codeql_sink_extractor.py`，从 CodeQL 模型提取 sink/source 写入 `security_profiles.json`。清洗流程必须可重现：
     1.  `git clone https://github.com/github/codeql --depth 1 --branch <tag>` 固定版本
-    2.  对每个语言的 `ql/lib/semmle/code/<lang>/security/*.qll`，按正则提取 `hasGlobalName("xxx")` / `hasName([...])` / `getMethod("xxx")` 等模式
-    3.  按 CWE 归类（CodeQL 按 CWE 目录组织）
-    4.  输出到 `security_profiles.json` 对应语言段，并写入 `codeql_revision` 字段记录所用 CodeQL 版本
-*   **强制约束**：每次更新 `security_profiles.json` 必须更新 `codeql_revision` 字段；手工补丁（`manual_additions` 段）必须标注来源理由与不在 CodeQL 中的原因。
+    2.  扫描每个语言的 security QLL 与 `.model.yml` Models-as-Data；Swift 必须额外解析 `SinkModelCsv` 以及 SQL QLL 中的 `hasQualifiedName(...)` 模型。
+    3.  按 CodeQL sink kind / CWE 归类（如 `command-injection`→CWE-78、`path-injection`→CWE-22、`sql-injection`→CWE-89）。
+    4.  Go/Swift 规则必须保留结构化上下文：Go 写入 `sinks.go_models[]`（`package/type/method/access_path/sink_kind`），Swift 写入 `sinks.swift_models[]`（`type/signature/method/access_path/sink_kind`）。
+    5.  输出到 `security_profiles.json` 对应语言段，并写入 `codeql_revision` 字段记录所用 CodeQL 版本。
+*   **强制约束**：每次更新 `security_profiles.json` 必须更新 `codeql_revision` 字段；手工补丁（`manual_additions` 段）必须标注来源理由与不在 CodeQL 中的原因。Go/Swift 禁止把 `Exec` / `Query` / `init` / `write` 等裸方法名作为高置信初筛依据；`ast_scanner.py` 必须优先使用结构化模型上下文，regex-only 命中只能降级为 `NEEDS_REVIEW` 或被上下文过滤。
 
 ---
 

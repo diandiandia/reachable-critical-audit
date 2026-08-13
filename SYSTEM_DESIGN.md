@@ -184,20 +184,20 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 
 由 `tools/codeql_sink_extractor.py` 完成，可重现：
 
-下表「AST 支撑」列的覆盖率为 `ast_scanner.py --self-check` 实测值：分子为该语言 `rules.<lang>` 段中带 `ast_patterns` 字段的规则数，分母为该语言规则总数。**带 grammar 包的 12 种语言的每一条 S-expression 均已通过 tree-sitter 编译 + 正样例命中验证**（验证方法见 §4.2.1）。全量 15 种语言的规则级 AST 字段覆盖率为 **100%**（`ast_coverage_ok=true`）。
+下表「扫描支撑」列表示该语言 L0 规则的机器可校验形式。self-check 覆盖率统计同时接受 `ast_patterns` 与结构化 CodeQL 模型（`go_models` / `swift_models`）。带 `source_reason` 且无 `codeql_model` 的 `manual_additions` 人工补丁单独计入 `manual_review_regex_rules`，不混入 CodeQL L0 覆盖率分母；Go/Swift 额外支持上下文匹配，避免 `Exec` / `Query` / `init` / `write` 等裸方法名造成高噪音命中。
 
-| 语言 | CodeQL 路径 | 关键 qll 文件 / 提取路径 | 提取模式 | AST 支撑（实测） |
+| 语言 | CodeQL 路径 | 关键 qll 文件 / 提取路径 | 提取模式 | 扫描支撑 |
 | :--- | :--- | :--- | :--- | :--- |
 | C++ | `cpp/ql/lib/semmle/code/cpp/security/` | `BufferAccess.qll` / `BufferWrite.qll` / `CommandExecution.qll` / `Overflow.qll` / `FileWrite.qll` | `hasGlobalName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
 | Java | `java/ql/lib/semmle/code/java/security/` | `SQL.qll` / `Command.qll` / `Xss.qll` / `XML.qll` / `Dom/*.qll` | `getMethod("...")` | Tree-Sitter S-expr（已验证编译+命中） |
 | Python | `python/ql/lib/semmle/code/python/security/` | `SqlEvaluation.qll` / `Exec.qll` 等 | `getFunc("...")` | Tree-Sitter S-expr（已验证编译+命中） |
 | JS/TS | `javascript/ql/lib/semmle/code/javascript/security/` | `*Sink.qll` 系列 | `getCalleeName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
-| Go | `go/ql/lib/semmle/code/go/security/` | `*Sink.qll` 系列 | `hasMemberName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Go | `go/ql/lib/**/ext/*.model.yml` + security QLL | MaD `sinkModel` | `package/type/method/access_path/sink_kind` → `sinks.go_models[]` | 结构化上下文匹配；必须看到 import/package 证据 |
 | C# | `csharp/ql/lib/semmle/code/csharp/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
 | Rust | `rust/ql/lib/codeql/rust/security/` | `*Sink.qll` 系列 | `unsafe_block` / `hasName` | Tree-Sitter S-expr（已验证编译+命中） |
 | PHP | `php/ql/lib/semmle/code/php/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
 | Ruby | `ruby/ql/lib/codeql/ruby/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
-| Swift | `swift/ql/lib/codeql/swift/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中） |
+| Swift | `swift/ql/lib/codeql/swift/security/` | `*Extensions.qll` / `SqlInjectionExtensions.qll` | `SinkModelCsv` + `hasQualifiedName(...)` | 结构化类型/签名/参数标签匹配 → `sinks.swift_models[]` |
 | Kotlin | `kotlin/ql/lib/codeql/kotlin/security/` | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中；节点类型 `call_expression`/`navigation_expression`，非 Java 节点） |
 | Scala | `scala/ql/lib/codeql/scala/security/` (及 Java 通用) | `*Sink.qll` 系列 | `hasName("...")` | Tree-Sitter S-expr（已验证编译+命中；节点类型 `call_expression`/`field_expression`，非 Java 节点） |
 | Shell | `shell/ql/lib/codeql/shell/security/` | Command/eval 提取模式 | `command_name` | 规则段暂空（无预置 sink 规则）；tree-sitter-bash 未随环境安装 → 运行时按 regex-only 降级 |
@@ -208,10 +208,13 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 
 清洗步骤：
 1. `git clone https://github.com/github/codeql --depth 1 --branch <tag>` 固定版本
-2. 对每个 `.qll` 按上表正则提取 sink/source 函数名
-3. 按 CodeQL 目录结构（按 CWE 组织）归类
-4. 输出到 `security_profiles.json` 对应语言段，写入 `codeql_revision` 字段
-5. 手工补丁段（`manual_additions`）单独维护，标注来源理由与不在 CodeQL 中的原因
+2. 扫描 `.model.yml` `sinkModel`、旧式 `.qll` `hasName/hasQualifiedName`、Swift `SinkModelCsv`
+3. 按 CodeQL sink kind / CWE 归类
+4. Go 写入 `sinks.go_models[]`，Swift 写入 `sinks.swift_models[]`，保留结构化上下文
+5. 输出到 `security_profiles.json` 对应语言段，写入 `codeql_revision` 字段
+6. 手工补丁段（`manual_additions`）单独维护，标注来源理由与不在 CodeQL 中的原因
+
+Go/Swift 扫描策略：若规则包含结构化模型，`ast_scanner.py` 不执行该规则的裸 regex 初筛，而是要求上下文证据。Go 需要对应 import/package 证据；Swift 需要类型名、调用标签或明确 C API 函数名。保留在 JSON 中的 regex 只用于审计可读性和兼容，不作为高置信主路径。
 
 ### 4.2.1 AST S-expression 验证方法
 
@@ -269,7 +272,7 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
     *   安全审计依托平台原生智能体拓扑，由 REQ-17 平台兼容层决定具体执行模式。
     *   **Mode A (Antigravity)**：`define_subagent` 创建 `vulnerability-verifier`/`business-logic-verifier`/`framework-sink-extractor`，`invoke_subagent` 隔离执行。
     *   **Mode A' (opencode)**：`task(subagent_type="general"/"explore", description="<role>: <id>", prompt=<任务书>)` 承载角色。任务书模板见 §3.3。
-    *   **Mode B (CLI)**：[run_workflow.js](file:///root/reachable-critical-audit/run_workflow.js) + `claude` / `agy` / `codex` spawn 编排，ENOENT 自动降级到 Mode A' 或 Mode A''。
+    *   **Mode B (CLI)**：`run_workflow.js` + `claude` / `agy` / `codex` spawn 编排，ENOENT 自动降级到 Mode A' 或 Mode A''。
     *   三种模式共享同一任务书模板、同一 verify_queue 状态机、同一 R0/R1/R1.5/R3/R4 流程，行为一致。
 
 ### REQ-02: 语言层级 fallback (L0/L1/L2)
@@ -357,7 +360,8 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 
 ### REQ-11: 声明式静态配置 + CodeQL 双源
 *   **设计实现**：
-    *   `security_profiles.json` 双源：CodeQL qll 清洗（L0）+ `manual_additions` 手工补丁。`codeql_revision` 字段记录所用版本。
+    *   `security_profiles.json` 双源：CodeQL 模型清洗（L0，含 `.qll` / `.model.yml` / Swift `SinkModelCsv`）+ `manual_additions` 手工补丁。`codeql_revision` 字段记录所用版本。
+    *   Go/Swift L0 规则保留结构化模型上下文（`go_models` / `swift_models`），扫描时按上下文命中，不把裸方法名当高置信 sink。
     *   `wrapper_detection` 段驱动 R1.5 L1 扩展。
     *   `l2_fallback_rules` 段驱动非预设语言 Top 10 高危兜底扫描，避免 fallback 规则散落在代码中。
     *   详见 §4。
@@ -408,7 +412,8 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 
 ### REQ-20: CodeQL 模型清洗工具与可重现更新
 *   **设计实现**：
-    *   [tools/codeql_sink_extractor.py](file:///root/reachable-critical-audit/tools/codeql_sink_extractor.py) 实现详见 §4.2。
+    *   `tools/codeql_sink_extractor.py` 实现详见 §4.2。
+    *   支持 `--replace-langs go,swift` 这类单语言刷新，修复局部规则质量时不扰动其他语言。
     *   每次更新 `security_profiles.json` 必须更新 `codeql_revision` 字段。
 
 ---

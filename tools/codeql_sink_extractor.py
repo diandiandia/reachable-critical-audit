@@ -47,7 +47,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 try:
     import yaml  # PyYAML — 现代 CodeQL sink 存于 .model.yml 的 sinkModel 段
@@ -302,18 +302,71 @@ def _mad_name(cells: list, lang: str) -> str | None:
     return next((c.strip() for c in cells if isinstance(c, str) and c.strip()), None)
 
 
-def extract_from_yaml(lang_root: Path) -> dict[str, list[str]]:
+def _mad_model(cells: list, lang: str, source_file: Path | None = None) -> dict[str, Any] | None:
+    """Return structured context for a CodeQL Models-as-Data row.
+
+    The previous extractor collapsed rows to bare method names (`Exec`, `Query`,
+    `Set`), which is too noisy for Go/Swift audits.  Keep package/type/access
+    context so the scanner can require local evidence before emitting a
+    candidate.
+    """
+    name = _mad_name(cells, lang)
+    if not name or not _valid_sink_name(name):
+        return None
+    kind = next((c for c in cells if isinstance(c, str) and c in SINK_KIND_TO_CWE), "")
+    if not kind:
+        return None
+
+    model: dict[str, Any] = {
+        "method": name,
+        "sink_kind": kind,
+    }
+    if source_file is not None:
+        model["source"] = source_file.name
+
+    if lang in ("rust", "cpp"):
+        model["package"] = cells[0] if cells and isinstance(cells[0], str) else ""
+        model["access_path"] = cells[1] if len(cells) > 1 and isinstance(cells[1], str) else ""
+        return model
+
+    # Common MaD schema:
+    # [package, type, subtypes, name, signature, ext, access_path, kind, provenance]
+    model["package"] = cells[0] if len(cells) > 0 and isinstance(cells[0], str) else ""
+    model["type"] = cells[1] if len(cells) > 1 and isinstance(cells[1], str) else ""
+    model["subtypes"] = cells[2] if len(cells) > 2 and isinstance(cells[2], bool) else None
+    model["signature"] = cells[4] if len(cells) > 4 and isinstance(cells[4], str) else ""
+    model["extension"] = cells[5] if len(cells) > 5 and isinstance(cells[5], str) else ""
+    model["access_path"] = cells[6] if len(cells) > 6 and isinstance(cells[6], str) else ""
+    model["provenance"] = cells[-1] if cells and isinstance(cells[-1], str) else ""
+    return model
+
+
+def _dedupe_models(models: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for model in models:
+        key = json.dumps(model, sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(model)
+    return out
+
+
+def extract_from_yaml(lang_root: Path) -> dict[str, dict[str, Any]]:
     """扫描一个语言目录下所有 .model.yml/.yml 的 sinkModel 段。
 
-    返回 {cwe_id: [names...]}。lang_root 传语言顶层目录(如 codeql_root/'java')。
+    返回 {cwe_id: {"names": [...], "models": [...]}}。lang_root 传语言顶层目录
+    (如 codeql_root/'java')。
     """
     if not HAS_YAML:
         return {}
     lang = lang_root.name
-    cwe_to_names: dict[str, list[str]] = {}
+    cwe_to_slot: dict[str, dict[str, Any]] = {}
     for f in glob.glob(str(lang_root / "**" / "*.yml"), recursive=True):
+        yml_path = Path(f)
         try:
-            doc = yaml.safe_load(Path(f).read_text(encoding="utf-8", errors="ignore"))
+            doc = yaml.safe_load(yml_path.read_text(encoding="utf-8", errors="ignore"))
         except Exception:
             continue
         if not isinstance(doc, dict):
@@ -330,12 +383,150 @@ def extract_from_yaml(lang_root: Path) -> dict[str, list[str]]:
                              if isinstance(c, str) and c in SINK_KIND_TO_CWE), None)
                 if not kind:
                     continue
-                name = _mad_name(row, lang)
-                if not name or not _valid_sink_name(name):
+                model = _mad_model(row, lang, yml_path)
+                if not model:
                     continue
+                name = model["method"]
                 cwe_id = SINK_KIND_TO_CWE[kind][0]
-                cwe_to_names.setdefault(cwe_id, []).append(name)
-    return cwe_to_names
+                slot = cwe_to_slot.setdefault(cwe_id, {"names": [], "models": []})
+                slot["names"].append(name)
+                if lang == "go":
+                    slot["models"].append(model)
+    for slot in cwe_to_slot.values():
+        slot["names"] = dedupe(slot["names"])
+        slot["models"] = _dedupe_models(slot["models"])
+    return cwe_to_slot
+
+
+def _swift_callable_name(signature: str) -> str | None:
+    if not signature:
+        return None
+    name = signature.split("(", 1)[0].strip()
+    if name == "init":
+        # Swift initializers are called as Type(label: ...), not init(...).
+        m = re.search(r"\(([^:),]+):", signature)
+        return m.group(1) if m else name
+    return name or None
+
+
+def _parse_swift_sinkmodel_row(raw: str, source_file: Path | None = None) -> dict[str, Any] | None:
+    parts = raw.split(";")
+    if len(parts) < 8:
+        return None
+    kind = parts[-1].strip()
+    if kind not in SINK_KIND_TO_CWE:
+        return None
+    signature = parts[3].strip()
+    method = _swift_callable_name(signature)
+    if not method:
+        return None
+    model = {
+        "module": parts[0].strip(),
+        "type": parts[1].strip(),
+        "subtypes": parts[2].strip().lower() == "true",
+        "signature": signature,
+        "method": method,
+        "extension": parts[5].strip(),
+        "access_path": parts[6].strip(),
+        "sink_kind": kind,
+    }
+    if source_file is not None:
+        model["source"] = source_file.name
+    return model
+
+
+def _extract_quoted_strings(text: str) -> list[str]:
+    return [
+        bytes(s, "utf-8").decode("unicode_escape", errors="ignore")
+        for s in re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"', text)
+    ]
+
+
+def _parse_swift_list_expr(expr: str) -> list[str]:
+    return _extract_quoted_strings(expr)
+
+
+def extract_swift_from_qll(security_root: Path) -> dict[str, dict[str, Any]]:
+    """Extract structured Swift sink models from CodeQL QLL security libraries.
+
+    Swift CodeQL still defines important sinks in two QLL forms not covered by
+    generic hasName extraction:
+    - SinkModelCsv rows: `;Type;true;method(...);;;Argument[0];sink-kind`
+    - SqlInjectionExtensions explicit hasName/hasQualifiedName method models.
+    """
+    cwe_to_slot: dict[str, dict[str, Any]] = {}
+
+    def add_model(cwe_id: str, model: dict[str, Any]) -> None:
+        name = model.get("method")
+        if not name:
+            return
+        slot = cwe_to_slot.setdefault(cwe_id, {"names": [], "models": []})
+        slot["names"].append(str(name))
+        slot["models"].append(model)
+
+    for qll in discover_qll_files(security_root):
+        try:
+            text = qll.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        if "SinkModelCsv" in text:
+            for raw in _extract_quoted_strings(text):
+                if raw.count(";") < 7:
+                    continue
+                model = _parse_swift_sinkmodel_row(raw, qll)
+                if not model:
+                    continue
+                cwe_id = SINK_KIND_TO_CWE[model["sink_kind"]][0]
+                add_model(cwe_id, model)
+
+        if qll.name == "SqlInjectionExtensions.qll":
+            # sqlite3 C API free functions.
+            for block in re.findall(r"\.hasName\(\s*\[([^\]]+)\]\s*\)", text, flags=re.S):
+                for sig in _parse_swift_list_expr(block):
+                    method = sig.split("(", 1)[0]
+                    if method.startswith("sqlite3_"):
+                        add_model("CWE-89", {
+                            "module": "",
+                            "type": "",
+                            "subtypes": False,
+                            "signature": sig,
+                            "method": method,
+                            "access_path": "Argument[1]",
+                            "sink_kind": "sql-injection",
+                            "source": qll.name,
+                        })
+
+            # Library methods: hasQualifiedName("Type", ["sig", ...]) and
+            # hasQualifiedName(["TypeA", "TypeB"], ["sig", ...]).
+            for m in re.finditer(
+                r"\.hasQualifiedName\(\s*(?P<types>\[[^\]]+\]|\"[^\"]+\")\s*,\s*"
+                r"(?P<sigs>\[[^\]]+\]|\"[^\"]+\")\s*\)",
+                text,
+                flags=re.S,
+            ):
+                types = _parse_swift_list_expr(m.group("types"))
+                sigs = _parse_swift_list_expr(m.group("sigs"))
+                for typ in types:
+                    for sig in sigs:
+                        method = _swift_callable_name(sig)
+                        if not method:
+                            continue
+                        add_model("CWE-89", {
+                            "module": "",
+                            "type": typ,
+                            "subtypes": True,
+                            "signature": sig,
+                            "method": method,
+                            "access_path": "Argument[0]",
+                            "sink_kind": "sql-injection",
+                            "source": qll.name,
+                        })
+
+    for slot in cwe_to_slot.values():
+        slot["names"] = dedupe(slot["names"])
+        slot["models"] = _dedupe_models(slot["models"])
+    return cwe_to_slot
 
 
 # ==============================================================================
@@ -442,10 +633,19 @@ def dedupe(seq: Iterable[str]) -> list[str]:
 def build_rule_entry(
     cwe_id: str, category: str, names: list[str],
     sources: tuple[str, ...] = ("codeql-mad-yaml",),
+    structured_models: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict | None:
-    if not names:
+    structured_models = structured_models or {}
+    if not names and not any(structured_models.values()):
         return None
-    regex_list = [re.escape(n) + r"\s*\(" for n in names]
+    # Keep regex for compatibility and manual review, but the scanner gives
+    # precedence to structured models for Go/Swift to avoid broad bare-method
+    # matches (`Exec`, `Query`, `init`, `Set`).
+    regex_list = [re.escape(n) + r"\s*\(" for n in names if _valid_sink_name(n)]
+    sinks: dict[str, Any] = {"regex": regex_list, "ast_patterns": []}
+    for key, models in structured_models.items():
+        if models:
+            sinks[key] = models
     return {
         "cwe_id": cwe_id,
         "category": category,
@@ -454,7 +654,7 @@ def build_rule_entry(
         # codeql-qll-hasname=从旧式 qll hasName/getMethod 提取。多源合并时并列。
         "codeql_model": "+".join(sources),
         "sink_count": len(names),
-        "sinks": {"regex": regex_list, "ast_patterns": []},
+        "sinks": sinks,
         "sources": {"regex": []},
     }
 
@@ -508,15 +708,19 @@ def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
                   f"(JVM 共享库, codeql-jvm-shared-with-java)", file=sys.stderr)
             continue
 
-        # cwe_id -> {"names": set, "sources": set}
+        # cwe_id -> {"names": set, "sources": set, "go_models": [], "swift_models": []}
         agg: dict[str, dict] = {}
 
         # ---- 通道 1: YAML sinkModel (扫语言顶层目录) ----
         lang_root = codeql_root / lang
         if HAS_YAML and lang_root.is_dir():
-            for cwe_id, names in extract_from_yaml(lang_root).items():
-                slot = agg.setdefault(cwe_id, {"names": set(), "sources": set()})
-                slot["names"].update(names)
+            for cwe_id, yslot in extract_from_yaml(lang_root).items():
+                slot = agg.setdefault(cwe_id, {
+                    "names": set(), "sources": set(), "go_models": [], "swift_models": []
+                })
+                slot["names"].update(yslot.get("names", []))
+                if lang == "go":
+                    slot["go_models"].extend(yslot.get("models", []))
                 slot["sources"].add("codeql-mad-yaml")
         elif not HAS_YAML:
             print("[!] PyYAML 未安装, 跳过 YAML sinkModel 通道 (pip install pyyaml)",
@@ -525,6 +729,14 @@ def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
         # ---- 通道 2: 旧式 qll hasName (security_root 之下) ----
         sec_root = find_security_root(codeql_root, lang)
         if sec_root is not None:
+            if lang == "swift":
+                for cwe_id, sslot in extract_swift_from_qll(sec_root).items():
+                    slot = agg.setdefault(cwe_id, {
+                        "names": set(), "sources": set(), "go_models": [], "swift_models": []
+                    })
+                    slot["names"].update(sslot.get("names", []))
+                    slot["swift_models"].extend(sslot.get("models", []))
+                    slot["sources"].add("codeql-swift-qll-structured")
             for qll in discover_qll_files(sec_root):
                 cwes = match_cwe_for_file(qll, lang)
                 if not cwes:
@@ -534,7 +746,9 @@ def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
                 if not names:
                     continue
                 for cwe_id, _cat in cwes:
-                    slot = agg.setdefault(cwe_id, {"names": set(), "sources": set()})
+                    slot = agg.setdefault(cwe_id, {
+                        "names": set(), "sources": set(), "go_models": [], "swift_models": []
+                    })
                     slot["names"].update(names)
                     slot["sources"].add("codeql-qll-hasname")
 
@@ -549,8 +763,14 @@ def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
         for cwe_id, slot in sorted(agg.items()):
             names = sorted(slot["names"])
             category = _CWE_DEFAULT_CATEGORY.get(cwe_id, cwe_id)
+            model_payload = {}
+            if lang == "go":
+                model_payload["go_models"] = _dedupe_models(slot.get("go_models", []))
+            if lang == "swift":
+                model_payload["swift_models"] = _dedupe_models(slot.get("swift_models", []))
             entry = build_rule_entry(cwe_id, category, names,
-                                     sources=tuple(sorted(slot["sources"])))
+                                     sources=tuple(sorted(slot["sources"])),
+                                     structured_models=model_payload)
             if entry:
                 entries.append(entry)
                 print(f"  [{lang}] {cwe_id:10s} {category:26s} "
@@ -561,7 +781,8 @@ def extract_all(codeql_root: Path) -> dict[str, list[dict]]:
 
 
 def merge_into_profiles(
-    profiles_path: Path, codeql_rev: str, extracted: dict, replace: bool = False
+    profiles_path: Path, codeql_rev: str, extracted: dict, replace: bool = False,
+    replace_langs: set[str] | None = None,
 ) -> None:
     """Merge extracted rules into security_profiles.json.
 
@@ -586,6 +807,8 @@ def merge_into_profiles(
 
     rules = profile.setdefault("rules", {})
 
+    replace_langs = replace_langs or set()
+
     if replace:
         # 纯 CodeQL 模式: 完全替换 rules，仅保留 CodeQL 提取 + manual_additions
         rules.clear()
@@ -593,8 +816,15 @@ def merge_into_profiles(
             if entries:
                 rules[lang] = entries
     else:
-        # 保守模式: 仅补充新 CWE
+        # 指定语言替换: 用于修复单语言规则质量，不影响其他语言。
+        for lang in sorted(replace_langs):
+            entries = extracted.get(lang, [])
+            if entries:
+                rules[lang] = entries
+        # 保守模式: 其他语言仅补充新 CWE
         for lang, extracted_entries in extracted.items():
+            if lang in replace_langs:
+                continue
             existing_cwes = {e.get("cwe_id") for e in rules.get(lang, [])}
             for entry in extracted_entries:
                 if entry["cwe_id"] not in existing_cwes:
@@ -605,11 +835,16 @@ def merge_into_profiles(
     for lang, manual_entries in profile.get("manual_additions", {}).items():
         if lang.startswith("_") or not isinstance(manual_entries, list):
             continue
-        existing_cwes = {e.get("cwe_id") for e in rules.get(lang, [])}
+        # 按 CWE+category 去重，避免同 CWE 的 CodeQL 规则吞掉框架/项目特定补丁。
+        existing_keys = {
+            (e.get("cwe_id"), e.get("category")) for e in rules.get(lang, [])
+            if isinstance(e, dict)
+        }
         for entry in manual_entries:
-            if isinstance(entry, dict) and entry.get("cwe_id") not in existing_cwes:
+            key = (entry.get("cwe_id"), entry.get("category")) if isinstance(entry, dict) else None
+            if isinstance(entry, dict) and key not in existing_keys:
                 rules.setdefault(lang, []).append(entry)
-                existing_cwes.add(entry.get("cwe_id"))
+                existing_keys.add(key)
 
     profiles_path.parent.mkdir(parents=True, exist_ok=True)
     profiles_path.write_text(
@@ -650,6 +885,12 @@ def main() -> int:
         "--replace-rules", action="store_true",
         help="Replace all existing rules with CodeQL extraction (default: conservative merge)",
     )
+    parser.add_argument(
+        "--replace-langs",
+        default="",
+        help="Comma-separated languages to replace from extraction while preserving other languages "
+             "(example: --replace-langs go,swift)",
+    )
     args = parser.parse_args()
 
     if args.codeql_path:
@@ -677,7 +918,12 @@ def main() -> int:
         print(json.dumps(extracted, indent=2, ensure_ascii=False))
         return 0
 
-    merge_into_profiles(Path(args.output), rev, extracted, replace=args.replace_rules)
+    replace_langs = {x.strip() for x in args.replace_langs.split(",") if x.strip()}
+    merge_into_profiles(
+        Path(args.output), rev, extracted,
+        replace=args.replace_rules,
+        replace_langs=replace_langs,
+    )
 
     # 清理临时 clone(用户传 --codeql-path 时不删)
     if not args.codeql_path:

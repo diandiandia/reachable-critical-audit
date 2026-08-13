@@ -201,6 +201,15 @@ class ASTCoarseScanner:
                         if "ast_patterns" in sinks:
                             ast_queries.extend(sinks["ast_patterns"])
                         if "regex" in sinks:
+                            # Go/Swift CodeQL rules now carry structured model
+                            # context.  Do not run broad bare-name regex for
+                            # these rules (`Exec(`, `Query(`, `init(`), because
+                            # it creates high-noise candidates unrelated to the
+                            # modeled package/type.
+                            if lang == "go" and sinks.get("go_models"):
+                                continue
+                            if lang == "swift" and sinks.get("swift_models"):
+                                continue
                             regex_patterns.extend(sinks["regex"])
 
                     ast_success = False
@@ -213,6 +222,9 @@ class ASTCoarseScanner:
                         except Exception as e:
                             # 语法解析报错，打印日志并降级到正则
                             sys.stderr.write(f"[Warning] AST scan failed for {rel_path}: {str(e)}. Falling back to regex...\n")
+
+                    structured_candidates = self._scan_structured_models(content, lang, rel_path, lang_rules)
+                    candidates.extend(structured_candidates)
 
                     # 2. 正则粗筛始终执行，AST 命中用于提升置信度；缺少 AST 支撑的
                     #    正则候选会在 _scan_via_regex 中降级为 NEEDS_REVIEW。
@@ -449,6 +461,144 @@ class ASTCoarseScanner:
                 })
         return candidates
 
+    def _scan_structured_models(self, content, lang, file_path, lang_rules):
+        if lang not in ("go", "swift"):
+            return []
+        candidates = []
+        lines = content.splitlines()
+        go_imports = self._go_import_aliases(content) if lang == "go" else {}
+
+        for rule in lang_rules:
+            sinks = rule.get("sinks", {})
+            model_key = "go_models" if lang == "go" else "swift_models"
+            models = sinks.get(model_key, [])
+            if not isinstance(models, list) or not models:
+                continue
+            for line_idx, line in enumerate(lines):
+                for model in models:
+                    if not isinstance(model, dict):
+                        continue
+                    if lang == "go":
+                        matched = self._line_matches_go_model(line, model, go_imports, content)
+                    else:
+                        matched = self._line_matches_swift_model(line, model, content)
+                    if not matched:
+                        continue
+                    sink_content = line.strip()
+                    if len(sink_content) > 1000:
+                        sink_content = sink_content[:1000] + "... [TRUNCATED]"
+                    candidates.append({
+                        "language": lang,
+                        "cwe_id": rule["cwe_id"],
+                        "category": rule["category"],
+                        "type": rule.get("type", "TAINT_ANALYSIS"),
+                        "file_path": file_path,
+                        "line_number": line_idx + 1,
+                        "sink_content": sink_content,
+                        "origin": "L0",
+                        "status": "PENDING",
+                        "sources_regex": rule.get("sources", {}).get("regex", []),
+                        "reachability_constraints": rule.get("reachability_constraints", ""),
+                        "verification_logic": rule.get("verification_logic", ""),
+                        "matched_model": {
+                            "package": model.get("package", model.get("module", "")),
+                            "type": model.get("type", ""),
+                            "method": model.get("method", ""),
+                            "signature": model.get("signature", ""),
+                            "access_path": model.get("access_path", ""),
+                            "sink_kind": model.get("sink_kind", ""),
+                        },
+                    })
+                    break
+        return candidates
+
+    @staticmethod
+    def _go_import_aliases(content):
+        aliases = {}
+        # Accept both single import lines and entries inside import (...).
+        for m in re.finditer(
+            r'(?m)^\s*(?:import\s+)?(?:(?P<alias>[A-Za-z_][A-Za-z0-9_]*|\.)\s+)?["`](?P<pkg>[^"`]+)["`]',
+            content,
+        ):
+            pkg = m.group("pkg")
+            alias = m.group("alias")
+            if alias == ".":
+                alias = ""
+            if not alias:
+                parts = [p for p in pkg.split("/") if p and not re.fullmatch(r"v\d+", p)]
+                alias = parts[-1].replace("-", "_") if parts else ""
+            aliases.setdefault(pkg, set()).add(alias)
+        return aliases
+
+    @staticmethod
+    def _line_matches_go_model(line, model, imports, content):
+        method = model.get("method", "")
+        if not method:
+            return False
+        package = model.get("package", "")
+        typ = model.get("type", "")
+
+        aliases = imports.get(package, set()) if package else set()
+        if package and not aliases and f'"{package}"' not in content and f"`{package}`" not in content:
+            return False
+
+        method_call = re.compile(r'(?:\.|\b)' + re.escape(method) + r'\s*\(')
+        if typ:
+            # Receiver type cannot be reliably known without type solving; require
+            # package import plus selector-style method call as the conservative
+            # local evidence.
+            return bool(method_call.search(line))
+
+        if aliases:
+            for alias in aliases:
+                if alias and re.search(r'\b' + re.escape(alias) + r'\s*\.\s*' + re.escape(method) + r'\s*\(', line):
+                    return True
+            return False
+
+        # Empty package model: only accept direct calls, not arbitrary selectors.
+        return bool(re.search(r'\b' + re.escape(method) + r'\s*\(', line))
+
+    @staticmethod
+    def _swift_first_label(signature):
+        m = re.search(r'\(([^:),]+):', signature or "")
+        return m.group(1) if m else ""
+
+    @classmethod
+    def _line_matches_swift_model(cls, line, model, content):
+        method = model.get("method", "")
+        signature = model.get("signature", "")
+        typ = model.get("type", "")
+        if not method:
+            return False
+
+        if method.startswith("sqlite3_"):
+            return bool(re.search(r'\b' + re.escape(method) + r'\s*\(', line))
+
+        first_label = cls._swift_first_label(signature)
+        type_seen = bool(typ and re.search(r'\b' + re.escape(typ) + r'\b', line))
+
+        if signature.startswith("init("):
+            # Swift initializer syntax: Data(contentsOf: ...), Bundle(path: ...)
+            if not typ or not first_label:
+                return False
+            return bool(re.search(
+                r'\b' + re.escape(typ) + r'\s*\([^)]*\b' + re.escape(first_label) + r'\s*:',
+                line,
+            ))
+
+        method_seen = bool(re.search(r'(?:\.|\b)' + re.escape(method) + r'\s*\(', line))
+        label_seen = bool(first_label and re.search(r'\b' + re.escape(first_label) + r'\s*:', line))
+
+        # For noisy names such as run/write/open, require the modeled type on the
+        # same line.  For labeled Swift APIs, method+label is sufficiently
+        # specific even if the receiver variable type is not locally visible.
+        noisy = {"run", "write", "open", "set", "get", "load", "init"}
+        if method in noisy:
+            return type_seen and (method_seen or label_seen)
+        if label_seen:
+            return method_seen or type_seen
+        return method_seen and (type_seen or not typ)
+
     def _scan_via_regex(self, content, regex_patterns, file_path, lang, lang_rules):
         candidates = []
         lines = content.splitlines()
@@ -614,6 +764,8 @@ if __name__ == "__main__":
         wrapper_langs = []
         rules_by_lang = {}
         total_rules_count = 0
+        coverage_rule_count = 0
+        manual_review_rule_count = 0
         empty_ast_count = 0
         langs_with_gaps = {}
         if profile_ok:
@@ -626,7 +778,18 @@ if __name__ == "__main__":
                 for lang_name, r_list in rules_by_lang.items():
                     total_rules_count += len(r_list)
                     for r in r_list:
-                        if not r.get("sinks", {}).get("ast_patterns"):
+                        is_manual_review_rule = bool(r.get("source_reason")) and not r.get("codeql_model")
+                        if is_manual_review_rule:
+                            manual_review_rule_count += 1
+                            continue
+                        coverage_rule_count += 1
+                        sinks = r.get("sinks", {})
+                        has_machine_check = (
+                            bool(sinks.get("ast_patterns")) or
+                            bool(sinks.get("go_models")) or
+                            bool(sinks.get("swift_models"))
+                        )
+                        if not has_machine_check:
                             empty_ast_count += 1
                             langs_with_gaps[lang_name] = langs_with_gaps.get(lang_name, 0) + 1
             except Exception:
@@ -646,7 +809,7 @@ if __name__ == "__main__":
 
         # REQ-03: AST 覆盖率门槛 (真实值; 覆盖率不足不阻断启动, 但如实告警)
         AST_COVERAGE_THRESHOLD = 95.0
-        coverage_pct = round((1 - empty_ast_count / total_rules_count) * 100, 1) if total_rules_count else 0
+        coverage_pct = round((1 - empty_ast_count / coverage_rule_count) * 100, 1) if coverage_rule_count else 0
         required_grammar_langs = sorted([
             lang for lang, rules in rules_by_lang.items()
             if rules and lang != "powershell"
@@ -670,11 +833,19 @@ if __name__ == "__main__":
             "configured_languages": profile_langs,
             "wrapper_detection_languages": [l for l in wrapper_langs if not l.startswith("_")],
             "total_rules": total_rules_count,
+            "coverage_rule_count": coverage_rule_count,
+            "manual_review_regex_rules": manual_review_rule_count,
             "ast_patterns_coverage_pct": coverage_pct,
             "ast_coverage_threshold_pct": AST_COVERAGE_THRESHOLD,
             "ast_coverage_ok": ast_coverage_ok,
             "rules_missing_ast_patterns": empty_ast_count,
-            "ast_gap_by_language": langs_with_gaps
+            "ast_gap_by_language": langs_with_gaps,
+            "coverage_note": (
+                "Coverage denominator excludes manual_additions-style rules with source_reason "
+                "and no codeql_model; those are counted in manual_review_regex_rules. "
+                "For CodeQL-sourced rules, coverage counts either tree-sitter ast_patterns "
+                "or structured CodeQL models (go_models/swift_models) as machine-checkable support."
+            )
         }
         if not res["ast_coverage_ok"]:
             res["warning"] = (
