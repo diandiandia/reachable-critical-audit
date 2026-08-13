@@ -189,6 +189,59 @@ def _smoke_check_language(lang, lang_rules):
         per_rule[cwe] = hits
     return per_rule, parse_ok
 
+def _anchor_check_language(lang, lang_rules, anchors):
+    """锚点召回测试 (REQ-24): 对每个 ground-truth CVE 锚点, 运行该语言全部
+    规则的 sink (regex + ast_patterns) 判断是否命中。返回 {anchor_index: bool}。
+
+    锚点必须被该语言任意一条规则捕获, 否则该语言规则库存在攻击面盲区,
+    --self-check 判 FAIL (阻止审计启动)。"""
+    if not anchors or lang not in SMOKE_SAMPLES:
+        # 无锚点或该语言无冒烟片段 (grammar 未装) 时跳过, 由调用方处理
+        return None
+    try:
+        lang_obj = TS_GET_LANG(lang)
+        parser = TS_GET_PARSER(lang)
+    except Exception:
+        return None
+    results = {}
+    for idx, anchor in enumerate(anchors):
+        sample = anchor.get("sample_code", "")
+        if not sample:
+            results[idx] = None
+            continue
+        try:
+            tree = parser.parse(bytes(sample, "utf8"))
+            root_node = tree.root_node
+            sample_text = sample.encode("utf-8")
+        except Exception:
+            results[idx] = False
+            continue
+        hit = False
+        for r in lang_rules:
+            sinks = r.get("sinks", {})
+            # 1) AST pattern 真实执行
+            for qs in sinks.get("ast_patterns", []):
+                try:
+                    if _ts_run_query(lang_obj, qs, root_node):
+                        hit = True
+                        break
+                except Exception:
+                    pass
+            if hit:
+                break
+            # 2) regex sink 命中
+            for rx in sinks.get("regex", []):
+                try:
+                    if re.search(rx, sample_text.decode("utf-8", errors="ignore")):
+                        hit = True
+                        break
+                except Exception:
+                    pass
+            if hit:
+                break
+        results[idx] = hit
+    return results
+
 class ASTCoarseScanner:
     EXTENSION_MAP = {
         ".java": "java",
@@ -1012,6 +1065,49 @@ if __name__ == "__main__":
                 "缺少以下有规则语言的 tree-sitter grammar: "
                 + ", ".join(grammar_missing)
             )
+        # REQ-24: 锚点召回自检 — 对 anchor_registry.json 中每语言 CVE 锚点做命中测试
+        anchor_results = {}
+        anchor_recall_by_lang = {}
+        anchor_failed_langs = []
+        try:
+            with open(os.path.join(script_dir, "../resources/anchor_registry.json"), encoding="utf-8") as af:
+                anchor_data = json.load(af)
+        except Exception:
+            anchor_data = {}
+        anchors_by_lang = anchor_data.get("anchors", {}) if isinstance(anchor_data, dict) else {}
+        if HAS_TREE_SITTER:
+            for lang, lang_rules in rules_by_lang.items():
+                anchors = anchors_by_lang.get(lang, [])
+                if not anchors:
+                    continue
+                per = _anchor_check_language(lang, lang_rules, anchors)
+                if per is None:
+                    # grammar 不可用 → 该语言锚点无法验证; 缺 grammar 已由 REQ-03
+                    # grammar_missing 判定 fail-fast, 此处仅告警不重复计数
+                    anchor_results[lang] = {"checked": 0, "hit": 0, "total": len(anchors), "skipped": True}
+                    continue
+                hit_n = sum(1 for v in per.values() if v is True)
+                anchor_results[lang] = {
+                    "checked": len(per), "hit": hit_n, "total": len(anchors),
+                    "skipped": False,
+                    "missed_cves": [anchors[i].get("cve") for i, v in per.items() if v is not True],
+                }
+                recall = (hit_n / len(anchors) * 100.0) if anchors else 100.0
+                anchor_recall_by_lang[lang] = round(recall, 1)
+                if recall < 100.0:
+                    anchor_failed_langs.append(lang)
+        anchor_global_total = sum(a.get("total", 0) for a in anchor_results.values() if not a.get("skipped"))
+        anchor_global_hit = sum(a.get("hit", 0) for a in anchor_results.values() if not a.get("skipped"))
+        anchor_recall_pct = round(anchor_global_hit / anchor_global_total * 100.0, 1) if anchor_global_total else None
+        res["anchor_recall_pct"] = anchor_recall_pct
+        res["anchor_recall_by_lang"] = anchor_recall_by_lang
+        res["anchor_results"] = anchor_results
+        if anchor_failed_langs:
+            res["anchor_warning"] = (
+                "锚点召回未达 100% (REQ-24): " + ", ".join(anchor_failed_langs)
+                + " — 该语言规则库存在真实 CVE 攻击面盲区, 审计启动被阻止。"
+            )
+            status_ok = False
         print(json.dumps(res, indent=2, ensure_ascii=False))
         sys.exit(0 if status_ok else 1)
 

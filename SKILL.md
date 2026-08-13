@@ -1,12 +1,14 @@
 ---
 name: reachable-critical-audit
-description: 专门针对项目进行严重漏洞（RCE, SQLi, SSRF, Bypasses, UAF, OOB, 未控内存分配）的可达性分析审计。五阶段漏斗模型（R0 工具自检 + R1 静态规则 + R1.5 框架感知扩展 + R3 双向回溯 + R4 业务逻辑深钻），双平台兼容（Antigravity define_subagent / opencode task / agy CLI 可选），规则库源自 CodeQL 官方模型清洗 + 项目 wrapper 自识别。忽略代码规范、弱随机数等低风险噪音。
+description: 专门针对项目进行严重漏洞（RCE, SQLi, SSRF, Bypasses, UAF, OOB, 未控内存分配）的可达性分析审计。六阶段漏斗模型（R0 工具自检含锚点召回 + R0.5 安全修复差异考古 + R1 静态规则 + R1.5 框架感知扩展 + R3 双向回溯 + R4 业务逻辑深钻），双平台兼容（Antigravity define_subagent / opencode task / agy CLI 可选），规则库源自 CodeQL 官方模型清洗 + 项目 wrapper 自识别 + 危险谓词 LOGIC_PATTERN。忽略代码规范、弱随机数等低风险噪音。
 ---
 
-# Reachable Critical Audit Skill v2 (可达性严重漏洞审计)
+# Reachable Critical Audit Skill v2.1 (可达性严重漏洞审计)
 
 > [!IMPORTANT]
-> **本 Skill v2 旨在替代 pre-v2 在两次真实审计（tirreno / Android Bluetooth）中暴露的盲区**：规则库只覆盖原生 sink 漏掉 `osi_*alloc` / `STREAM_TO_*` / Android `ContentResolver.query`；要求"本仓库闭环"漏掉跨进程信任边界破坏；`verify_queue.json` 从未落盘；ast_scanner.py 形同虚设；Coverage Rate 公式导致造假。v2 通过五阶段漏斗 + 平台兼容层 + CodeQL 双源 + 跨边界终结四项核心改动系统修复。Agent 必须严格遵守本规范，忽略代码规范与合规性噪音，只聚焦"外部可控输入是否能真实到达高危 Sink 点（含跨进程边界）"的真实严重漏洞。
+> **本 Skill v2 旨在替代 pre-v2 在两次真实审计（tirreno / Android Bluetooth）中暴露的盲区**：规则库只覆盖原生 sink 漏掉 `osi_*alloc` / `STREAM_TO_*` / Android `ContentResolver.query`；要求"本仓库闭环"漏掉跨进程信任边界破坏；`verify_queue.json` 从未落盘；ast_scanner.py 形同虚设；Coverage Rate 公式导致造假。v2 通过五阶段漏斗 + 平台兼容层 + CodeQL 双源 + 跨边界终结四项核心改动系统修复。
+>
+> **v2.1 由两次新实测驱动（phpMyAdmin 4.8.5 漏 CVE-2018-12613 LFI、fastjson2 2.0.62 漏 checkAutoType hash 白名单绕过）追加四项**：① **锚点召回自检**（`anchor_registry.json`，<100% 阻止审计启动）；② **R0.5 安全修复差异考古**（git 历史中安全修复 commit 的 diff 即漏洞特征源）；③ **LOGIC_PATTERN 危险谓词规则**（第三类规则类型，表达"授权/白名单被弱化"语义缺陷）；④ **提取器完整性修复**（`semgrep_extractor.py` 支持 taint-mode 规则 + 增量合并 + `--reconcile` 对账）。Agent 必须严格遵守本规范，忽略代码规范与合规性噪音，只聚焦"外部可控输入是否能真实到达高危 Sink 点（含跨进程边界）"的真实严重漏洞。
 
 ---
 
@@ -32,7 +34,7 @@ Skill 必须在 R0 阶段探测平台能力，选择执行模式并写入 `.audi
 
 **Mode B 多 CLI 自适应**：`run_workflow.js` 自动按 `claude → agy → codex` 优先级探测环境中可用的 CLI 工具，也可通过 `AGENT_CLI` 环境变量强制指定。每个候选点 spawn 独立子进程执行（物理隔离 LLM context），彻底解决长序列审计中的注意力下降问题。支持环境变量 `BATCH_SIZE`（并发数，默认 4）和 `TIMEOUT_MS`（单次超时，默认 300000ms）。
 
-**强制约束**：无论何种模式，R0 工具自检、`verify_queue.json` 落盘、R1.5 强制触发条件、R4 6 类固化假说、REQ-10 量化公式必须一致执行。
+**强制约束**：无论何种模式，R0 工具自检（含锚点召回）、R0.5 差异考古、`verify_queue.json` 落盘、R1.5 强制触发条件、R4 6 类固化假说、REQ-10 量化公式必须一致执行。
 
 > 在 opencode 等 fallback 平台上，SKILL.md 后文中所有出现的 `define_subagent`/`invoke_subagent` 调用描述在 Mode A' 下等价于 `task(subagent_type="general", description="<role>: <id>", prompt=<任务书>)`；在 Mode B 下由 `run_workflow.js` 自动编排。详见附录 A 任务书模板。
 
@@ -54,7 +56,7 @@ Skill 启动后**第一步必须**执行以下四件事，任何一步失败即 
      tree-sitter-scala
    ```
    不允许在被审计项目根目录创建 `.venv`，不允许把依赖安装到系统 Python；遇到 PEP 668 / externally-managed-environment 时必须改用 skill-local `.venv`。Mode B 的 `run_workflow.js` 会优先使用 skill 安装目录下的 `.venv/bin/python3`；也可由 `REACHABLE_AUDIT_VENV` 覆盖 venv 目录，或由 `PYTHON_BIN` 覆盖解释器。
-2. **AST 工具自检**：运行 `<skill_dir>/.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter` + 有规则语言的对应 grammar 可用，并确认 AST pattern 覆盖率达到阈值。失败绝不允许降级为 LLM 脑补 AST。
+2. **AST 工具自检**：运行 `<skill_dir>/.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter` + 有规则语言的对应 grammar 可用，并确认 AST pattern 覆盖率达到阈值。**锚点召回自检（REQ-24，v2.1）**：self-check 加载 `resources/anchor_registry.json`，对每语言 ground-truth CVE 锚点（如 PHP `include $_GET['x']` → CVE-2018-12613；Java `checkAutoType` hash 白名单 → fastjson2）做命中测试，**AnchorRecall < 100% 该语言判 FAIL**（输出 `anchor_recall_pct`），阻止审计启动。失败绝不允许降级为 LLM 脑补 AST。
 3. **平台模式探测**：按"平台兼容层"表格顺序探测，结果写入 `.audit_results/execution_mode.json`：
    ```json
    {"mode": "A_NATIVE_ANTIGRAVITY|A_NATIVE_OPENCODE|B_ANTIGRAVITY_CLI",
@@ -67,11 +69,24 @@ Skill 启动后**第一步必须**执行以下四件事，任何一步失败即 
 
 ---
 
+## 🔬 R0.5：安全修复差异考古（REQ-25，v2.1 新增）
+
+**R0 通过后、R1 之前执行**。利用 git 历史中安全修复 commit 的 diff 作为漏洞特征源，定位规则库无法表达的**语义逻辑缺陷**（如 fastjson2 `checkAutoType` 只比 64 位滚动 hash 不完整校验类名、tengine 远端计数无上限循环）。
+
+1. **运行考古工具**：`<skill_dir>/.venv/bin/python3 tools/r05_diff_archaeology.py <repo> [--tag <tag>]`。该工具对 `--grep`（默认 `security|autotype|rce|bypass|cve|deny|fix|safe|exploit|gadget|hardening|sanitize`）匹配的安全 commit 执行 `git diff parent..commit`，提取 `added_guards`（新增校验特征，如 `if (hasIllegalTypeNameChars(typeName))`）与 `removed_paths`（被删/弱化路径）。
+2. **主 Agent 判定**：读取输出，对每个候选 commit，判断**目标审计版本**是否含该漏洞特征：
+   - 含特征 → 输出为 `.audit_results/r05_diff_archaeology.json`，标注 `verdict: "疑似未修复"`，`origin=R05` 并入 R3 验证队列。
+   - 不含（已修复/回退修复） → 标注 `verdict: "已修复"`，仅记录。
+3. **无 git 历史**：跳过并记录 `skipped_reason`，不阻塞审计。
+4. **设计动机**：fastjson2 实测——`checkAutoType` hash 白名单绕过（2.0.63 修复 commit `ec47e24c4`）无法被任何 sink/污点规则表达，只有 diff 修复 commit 才能确认漏洞特征。对 AutoType/RCE 这类"迭代修 N 轮"的库，本阶段产出价值高于静态规则阶段。
+
+---
+
 ## 📊 R1：静态规则扫描（L0）
 
 加载 `resources/security_profiles.json` 的 `rules.<lang>` 段（L0 规则）。
 
-1. **基准规则对齐**：Agent 首先读取并解析 `resources/security_profiles.json`。`rules.<lang>` 段已由 CodeQL 模型清洗产出（`codeql_revision` 字段记录版本），覆盖 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）。Go 规则必须检查 `sinks.go_models[]`，Swift 规则必须检查 `sinks.swift_models[]`；这两类结构化模型来自 CodeQL MaD / Swift `SinkModelCsv`。
+1. **基准规则对齐**：Agent 首先读取并解析 `resources/security_profiles.json`。`rules.<lang>` 段已由 CodeQL 模型清洗产出（`codeql_revision` 字段记录版本），覆盖 15 种预设语言（Python、C/C++、Java、JS/TS、C#、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、Shell、Perl、PowerShell）。Go 规则必须检查 `sinks.go_models[]`，Swift 规则必须检查 `sinks.swift_models[]`；这两类结构化模型来自 CodeQL MaD / Swift `SinkModelCsv`。**第三类规则类型 LOGIC_PATTERN（v2.1，REQ-26）**：匹配"授权/白名单被弱化"的语义缺陷（hash-only 白名单 + `loadClass`、远端计数无上限循环、前缀校验代替全名校验），不依赖污点链。
 2. **混合双层扫描**：运行 `python3 tools/ast_scanner.py <workspace>`（队列**缺省落盘到 `<workspace>/.audit_results/verify_queue.json`**，与 `batch_verify.py` 的读取路径契约一致；如显式传第二参数，脚本会规范到其下的 `.audit_results/` 子目录，**绝不写入源码根目录**，满足 REQ-12）。脚本用 tree-sitter AST S-expression 或 Go/Swift 结构化模型上下文命中候选，同时保留正则粗筛作为召回兜底。Go/Swift 结构化规则不得用裸 `Exec` / `Query` / `init` / `write` regex 作为高置信初筛；正则命中但缺乏 AST/结构化上下文支撑的候选点降级为 `NEEDS_REVIEW`，不能直接计入 REACHABLE 候选。
 3. **过滤低风险噪音**：不在 Top-N 规则内的 CWE 类别物理忽略。代码风格、命名规范、非安全场景弱随机数物理过滤。超 1000 字符行强制截断。
 4. **测试/构建/工具代码丢弃**：路径含 `test/`/`tests/`/`mock/`/`tools/`/`build/`/`scripts/`/`vendor/`/`node_modules/`/`third_party/`/`libs/`/`.agents/`/`.codex/`/`.venv/`/`reachable-critical-audit/` 的候选直接丢弃，不入队列。该条件语言无关—对所有 15 种预设语言统一生效，避免审计 skill 自身或其依赖环境。
@@ -214,12 +229,15 @@ Sink Discovery Rate   = R1(L0) 命中                                /  (R1 + R1
                                                             ↑ 越接近 1 说明 L0 规则库越完备
 False Negative Risk   = L1 占比 + R4 REACHABLE 占比
                                                             ↑ 越高说明仅靠 L0 漏报越多,督促规则库补齐
+Anchor Recall (v2.1)  = 锚点命中数 / anchor_registry.json 该语言锚点总数
+                                                            ↑ 规则库对真实 CVE 攻击面的召回,<100% 禁止声称覆盖率有效
 ```
 
 **强制约束**：
 - 分母 = `verify_queue.json` 中所有候选数（L0+L1+L2+R4），含 `NEEDS_REVIEW`。
 - 采样策略必须在报告中明示。
 - `NEEDS_REVIEW` 节点必须在报告中显式列出，不允许静默丢弃。
+- **v2.1**：报告 `quantified_metrics` 必须包含 `anchor_recall_pct`（全局 + 按语言）；`Anchor Recall < 100%` 时禁止报告 Coverage/Reachability 有效性结论。
 
 ### 报告必须包含的字段
 
@@ -237,7 +255,9 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
     "noise_reduction_rate_pct": ...,
     "sink_discovery_rate_pct": ...,
     "false_negative_risk_pct": ...,
-    "origin_breakdown": {"L0": N, "L1": N, "L2": N, "R4": N}
+    "anchor_recall_pct": ...,           // v2.1, REQ-24
+    "anchor_recall_by_lang": {...},     // v2.1, 按语言
+    "origin_breakdown": {"L0": N, "L1": N, "L2": N, "R4": N, "R05": N}
   },
   "reachable_vulnerabilities": [...],
   "needs_review": [...],
@@ -390,11 +410,18 @@ False Negative Risk   = L1 占比 + R4 REACHABLE 占比
 ## 📋 附录 B：执行流程速查
 
 ```
-R0  依赖 bootstrap + 工具自检 + 平台探测 + mkdir .audit_results/ + 初始化 verify_queue.json
-     │  失败即 fail-fast
+R0  依赖 bootstrap + 工具自检(含锚点召回) + 平台探测 + mkdir .audit_results/ + 初始化 verify_queue.json
+     │  失败即 fail-fast; 锚点召回 <100% 阻止启动 (v2.1)
+     ↓
+R0.5  安全修复差异考古 (v2.1, REQ-25):
+     │  r05_diff_archaeology.py <repo> [--tag]
+     │  git log --grep security + diff parent..commit → added_guards/removed_paths
+     │  主 Agent 判定目标版本是否含漏洞特征 → 疑似未修复 origin=R05 入 R3
+     │  无 git 历史则跳过并记录
      ↓
 R1  静态规则扫描 (L0):
      │  ast_scanner.py tree-sitter AST 高置信命中 + regex 召回兜底
+     │  第三类规则 LOGIC_PATTERN (危险谓词) 同步匹配 (v2.1)
      │  测试/构建/第三方路径候选丢弃 (语言无关)
      │  按 CWE 标记 priority 字段 (P0/P1/P2)
      │  候选入队 origin=L0, priority=0~2, status=PENDING
@@ -425,7 +452,7 @@ R4  业务逻辑深钻:
      ↓
 最终 量化报告 (L0/L1/L2 区分):
      │  reachable_vulnerabilities_report.{md,json}
-     │  MUST 包含: Sink Discovery Rate + False Negative Risk
+     │  MUST 包含: Sink Discovery Rate + False Negative Risk + AnchorRecall (v2.1)
      │  MUST 列出 NEEDS_REVIEW (不允许静默丢弃)
 ```
 
@@ -435,8 +462,10 @@ R4  业务逻辑深钻:
 
 | pre-v2 | v2 | 变化 |
 |---|---|---|
-| 阶段 1 (规则固化 + Fallback) | R0 + R1 + R1.5 | R0 强制工具自检;R1.5 框架扩展是新增阶段 |
+| 阶段 1 (规则固化 + Fallback) | R0 + R0.5 + R1 + R1.5 | R0 强制工具自检 + 锚点召回; R0.5 差异考古 (v2.1); R1.5 框架扩展是新增阶段 |
 | 阶段 2 (双向回溯) | R3 | 增加跨边界 sink 终结 + verify_queue 状态机 |
-| 阶段 3 (量化报告) | 最终报告 | 公式重做,区分 L0/L1/L2,新增 Sink Discovery Rate |
+| 阶段 3 (量化报告) | 最终报告 | 公式重做,区分 L0/L1/L2,新增 Sink Discovery Rate + AnchorRecall (v2.1) |
 | 阶段 4 (业务逻辑深钻) | R4 | 假说从自由 3~5 个改为固化 6 类必选 |
 | — | 平台兼容层 | 新增,双平台适配 |
+
+**v2.1 变更摘要**：R0.5 阶段新增；锚点召回自检；LOGIC_PATTERN 第三类规则；`semgrep_extractor.py` taint-mode + 增量合并 + `--reconcile`；PHP CWE-98 LFI 规则（锚点 CVE-2018-12613）。详见 `REQUIREMENTS.md`（REQ-24~28）与 `SYSTEM_DESIGN.md`（§4.5/§4.6）。

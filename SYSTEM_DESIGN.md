@@ -8,6 +8,13 @@
 4. **手写规则库 → CodeQL 清洗 + 项目 wrapper 双源**：`security_profiles.json` 必须源自 CodeQL qll，辅以 `wrapper_detection` 驱动的 L1 扩展。
 5. **内存候选 → verify_queue 状态机**：候选必须落盘到 `.audit_results/verify_queue.json`，状态机驱动 R3/R4。
 
+**v2.1 核心架构改动（由 phpMyAdmin LFI 漏检 + fastjson2 AutoType hash 绕过两次实测驱动）**：
+
+6. **R0.5 安全修复差异考古（新阶段）**：利用 git 历史中安全修复 commit 的 diff 作为漏洞特征来源，定位"规则库无法表达的语义逻辑缺陷"（fastjson2 hash 白名单绕过只有版本对比才能确认）。
+7. **锚点召回验证（新自检维度）**：`resources/anchor_registry.json` 固化每语言真实 CVE sink，self-check 强制 100% 命中，杜绝"覆盖率 100% 但核心攻击面零命中"的指标失真。
+8. **LOGIC_PATTERN 危险谓词规则（第三类规则类型）**：表达"授权/白名单被弱化"的语义缺陷，不再依赖污点链。
+9. **提取器完整性修复**：`semgrep_extractor.py` 支持 taint-mode 规则 + 增量合并 + `--reconcile` 对账，消除"官方有、skill 拉不进"的盲区。
+
 ---
 
 ## 1. 软件设计哲学：双轨制 + 跨边界感知 + 规则可扩展
@@ -27,26 +34,29 @@ pre-v2 的设计哲学是"数据流/业务逻辑双轨制 + Grep 粗筛 + AST �
 ```mermaid
 graph TD
     A[工作区源代码]
-    R0[R0: 依赖 bootstrap + 工具自检 + 平台探测 + mkdir .audit_results]
+    R0[R0: 依赖 bootstrap + 工具自检 + 锚点召回 + 平台探测 + mkdir .audit_results]
+    R05[R0.5: 安全修复差异考古<br/>git log --grep security + diff parent..commit]
     R1[R1: 静态规则扫描 L0<br/>ast_scanner.py + security_profiles.json]
     R15[R1.5: 框架感知扩展 L1<br/>wrapper_detection -> extended_sinks.json]
     R3[R3: 回溯可达性验证<br/>分批并发 Subagent + verify_queue 状态机]
     R4[R4: 业务逻辑深钻<br/>6 类固化假说 + business-logic-verifier]
-    RPT[最终高可信漏洞报告<br/>+ 量化指标 L0/L1/L2 区分]
+    RPT[最终高可信漏洞报告<br/>+ 量化指标 L0/L1/L2 区分 + AnchorRecall]
 
     A --> R0
-    R0 -->|self-check 失败则 fail-fast| R1
+    R0 -->|self-check/锚点失败则 fail-fast| R05
+    R05 -->|疑似未修复特征入队| R1
     R1 -->|Top-N sink 候选入队 origin=L0| R15
     R15 -->|项目 wrapper 候选入队 origin=L1| R3
     R3 -->|强制落盘 + Assert 无 PENDING| R4
     R4 -->|6 类假说 origin=R4| RPT
 ```
 
-### 2.1 五阶段定义
+### 2.1 阶段定义
 
 | 阶段 | 名称 | 输入 | 输出 | 守卫 |
 | :--- | :--- | :--- | :--- | :--- |
-| **R0** | 依赖 bootstrap + 工具自检 + 平台探测 | 工作区路径 | skill 安装目录 `.venv/`（必要时）+ 工作区 `.audit_results/` 目录骨架 + `execution_mode.json` + `verify_queue.json` 空队列 | tree-sitter/grammar 安装或 `ast_scanner.py --self-check` 失败即 fail-fast |
+| **R0** | 依赖 bootstrap + 工具自检 + 锚点召回 + 平台探测 | 工作区路径 | skill 安装目录 `.venv/`（必要时）+ 工作区 `.audit_results/` 目录骨架 + `execution_mode.json` + `verify_queue.json` 空队列 | tree-sitter/grammar 安装失败、`ast_scanner.py --self-check` 失败、或**锚点召回 < 100%** 即 fail-fast |
+| **R0.5** | 安全修复差异考古（v2.1 新增） | 目标 repo + 指定 tag/commit | `.audit_results/r05_diff_archaeology.json`（疑似未修复特征清单 → 入 R3） | 无 git 历史则跳过并记录；有 git 历史必须执行 |
 | **R1** | 静态规则扫描 (L0) | `security_profiles.json` + 工作区 | `verify_queue.json` 候选段（origin=L0） | AST 校验不通过的候选降级 NEEDS_REVIEW |
 | **R1.5** | 框架感知扩展 (L1) | `wrapper_detection` + 工作区 | `extended_sinks.json` + 并入 `verify_queue.json`（origin=L1） | 始终执行，与 R1 互补不可替代 |
 | **R3** | 回溯可达性验证 | `verify_queue.json` PENDING 节点 | 每节点状态机推进到 REACHABLE/UNREACHABLE/NEEDS_REVIEW | 每批立即落盘 + Assert 无 PENDING 才能进 R4 |
@@ -66,6 +76,11 @@ pre-v2 的双轨制保留并强化：
     *   `cross_boundary_trust_violation`：自由文本拼字符串传入跨进程 API 且参数化字段为 null
     *   `exported_no_permission`：manifest exported=true 且无 permission
     *   `privilege_boundary_skip`：提权前数据流入提权后指令
+*   **LOGIC_PATTERN (危险谓词模式)** *（v2.1 新增，第三类规则类型）*：匹配"授权/白名单/边界校验被弱化"的语义缺陷，不依赖污点链：
+    *   hash-only 白名单：`Arrays.binarySearch(hashCodes, hash) >= 0` 后直接 `loadClass(typeName)` → fastjson2 `checkAutoType` 类
+    *   远端计数无上限循环：远端 uint32 驱动 `for(i=0;i<count;i++)` 写入固定数组无 `count<=MAX` → tengine `parse_rc_info` 类
+    *   前缀校验代替全名校验 / `expectClass==null` 分支跳过黑名单
+    *   LOGIC_PATTERN 定义固化在 `security_profiles.json` 的 `rules.<lang>[]`（`type: "LOGIC_PATTERN"`），由 `ast_scanner.py` AST 匹配产出候选并入 R3。
 
 ---
 
@@ -208,11 +223,16 @@ R0 阶段必须执行以下探测，结果写入 `.audit_results/execution_mode.
 
 清洗步骤：
 1. `git clone https://github.com/github/codeql --depth 1 --branch <tag>` 固定版本
-2. 扫描 `.model.yml` `sinkModel`、旧式 `.qll` `hasName/hasQualifiedName`、Swift `SinkModelCsv`
+2. 扫描 `.model.yml` `sinkModel`、旧式 `.qll` `hasName/hasQualifiedName`、Swift `SinkModelCsv`；`semgrep_extractor.py` 额外支持 `mode: taint` + `metavariable-regex` 的 `pattern-sinks`（如 PHP `file-inclusion.yaml` 的 `\b(include|include_once|require|require_once)\b`）
 3. 按 CodeQL sink kind / CWE 归类
 4. Go 写入 `sinks.go_models[]`，Swift 写入 `sinks.swift_models[]`，保留结构化上下文
 5. 输出到 `security_profiles.json` 对应语言段，写入 `codeql_revision` 字段
 6. 手工补丁段（`manual_additions`）单独维护，标注来源理由与不在 CodeQL 中的原因
+
+**v2.1 提取器修复（REQ-27）**：
+- **增量合并**：提取结果与既有规则/`manual_additions` 取**并集**，禁止覆盖式替换；`manual_additions` 段永远保留。
+- **`--reconcile` 对账**：输出 `[官方有, skill 无]` / `[skill 有, 官方无]` 差异清单，供规则治理决策。
+- **实测证据**：对账发现官方 `php/lang/security/file-inclusion.yaml`（CWE-98）从未进入 skill，且重跑 extractor 也补不回（提取逻辑跳过 taint-mode 规则 + 覆盖式合并抹掉既有 sink）。
 
 Go/Swift 扫描策略：若规则包含结构化模型，`ast_scanner.py` 不执行该规则的裸 regex 初筛，而是要求上下文证据。Go 需要对应 import/package 证据；Swift 需要类型名、调用标签或明确 C API 函数名。保留在 JSON 中的 regex 只用于审计可读性和兼容，不作为高置信主路径。
 
@@ -262,6 +282,53 @@ CodeQL 不覆盖但必须纳入的 sink，单独列出：
 ```
 
 R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式的、本项目自定义的函数/宏/方法，产出 `extended_sinks.json`，并入 `verify_queue.json` 的候选段，`origin` 标记为 `L1`。
+
+---
+
+## 4.5 锚点召回注册表 (Anchor Registry) *（v2.1 新增，REQ-24）*
+
+`resources/anchor_registry.json` 固化每语言 ground-truth CVE 攻击面锚点：
+
+```json
+{
+  "schema_version": "1.0",
+  "anchors": {
+    "php": [
+      {"cwe_id": "CWE-98", "category": "LocalFileInclusion",
+       "sample_code": "<?php include $_GET['x']; ?>",
+       "cve": "CVE-2018-12613"},
+      {"cwe_id": "CWE-89", "category": "SqlInjection",
+       "sample_code": "<?php $stmt = mysqli_query($conn, \"SELECT * FROM t WHERE id=$id\"); ?>",
+       "cve": "CVE-2021-4048"}
+    ],
+    "java": [
+      {"cwe_id": "CWE-502", "category": "Deserialization",
+       "sample_code": "class A { public C f(String n){ return (C) Class.forName(n).newInstance(); } }",
+       "cve": "fastjson2 checkAutoType hash-forge"},
+      {"cwe_id": "CWE-78", "category": "CommandInjection",
+       "sample_code": "class A { void f(String c){ Runtime.getRuntime().exec(c); } }",
+       "cve": "CVE-2016-5734"}
+    ]
+  }
+}
+```
+
+`ast_scanner.py --self-check` 对每个锚点运行命中测试，**AnchorRecall < 100% 该语言判 FAIL**（阻止审计启动）。锚点同时作为回归集：规则库任何改动后必跑，防止"修好 A 漏掉 B"。
+
+## 4.6 R0.5 安全修复差异考古设计 *（v2.1 新增，REQ-25）*
+
+```
+R0.5 输入: 目标 repo 路径 + 指定 tag/commit
+1. git log --grep="security|autotype|rce|bypass|cve|deny|fix|safe|exploit" --oneline
+2. 对每个候选 commit:
+     git diff <parent>..<commit> --stat
+     提取特征: (a) 新增的校验/白名单/边界检查 (b) 被删除/弱化的危险路径
+3. 对目标版本检查特征是否存在 → 输出 {commit, features, verdict: 疑似未修复/已修复}
+4. 疑似未修复特征 → 直接入 R3 验证队列 (origin=R05)
+产物: .audit_results/r05_diff_archaeology.json
+```
+
+设计动机（fastjson2 实测）：`checkAutoType` 的 hash 白名单绕过（2.0.63 修复 commit `ec47e24c4`）无法被任何 sink/污点规则表达，只有 diff 修复 commit 才能确认漏洞特征（"hash-only matching" → 应加文本校验）。R0.5 把"版本考古"固化为强制阶段，对 AutoType/RCE 这类迭代修复的库产出最高。无 git 历史时跳过并记录 `skipped_reason`。
 
 ---
 
@@ -356,6 +423,7 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
         *   `Noise Reduction Rate` = UNREACHABLE / 已验证
         *   `Sink Discovery Rate` = L0 命中 / 总候选（规则库召回能力）
         *   `False Negative Risk` = L1 占比 + R4 REACHABLE 占比（盲区指标）
+        *   `Anchor Recall` *(v2.1)* = 锚点命中数 / `anchor_registry.json` 锚点总数（规则库对真实 CVE 攻击面的召回）
     *   采样策略必须在报告中明示，`NEEDS_REVIEW` 计入分母。
 
 ### REQ-11: 声明式静态配置 + CodeQL 双源
@@ -416,6 +484,21 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
     *   支持 `--replace-langs go,swift` 这类单语言刷新，修复局部规则质量时不扰动其他语言。
     *   每次更新 `security_profiles.json` 必须更新 `codeql_revision` 字段。
 
+### REQ-24: 锚点召回验证（AnchorRecall）
+*   **设计实现**：`resources/anchor_registry.json`（§4.5）→ `ast_scanner.py --self-check` 跑锚点命中测试，< 100% fail-fast；报告 `quantified_metrics.anchor_recall_pct`。锚点即回归集。
+
+### REQ-25: 安全修复差异考古（R0.5）
+*   **设计实现**：§4.6。R0 通过后在 R1 前执行 `git log --grep=security` + `git diff parent..commit`，产出 `.audit_results/r05_diff_archaeology.json`，疑似未修复特征 origin=R05 入 R3。无 git 历史跳过并记录。
+
+### REQ-26: LOGIC_PATTERN 危险谓词规则
+*   **设计实现**：§2.2 第三类规则类型。`security_profiles.json` 的 `rules.<lang>[]` 中 `type: "LOGIC_PATTERN"` 条目由 `ast_scanner.py` AST 匹配，产出候选并入 R3。
+
+### REQ-27: 提取器完整性修复与对账
+*   **设计实现**：§4.2。`semgrep_extractor.py` 支持 taint-mode/metavariable-regex；合并改增量式（并集，保留 `manual_additions`）；新增 `--reconcile` 差异输出。
+
+### REQ-28: 语言适配 sink 词表与上下文排除
+*   **设计实现**：`security_profiles.json` 新增 `language_adaptation` 段：接收者排除表（Java `Runtime.exec` 限定 / 排除 ASM `Frame.execute`、javac `JCTree.exec`）+ 语言文件类型白名单（PHP 规则不扫 `.js`/`.py`）。`ast_scanner.py` 扫描时应用。
+
 ---
 
 ## 6. 修订前后架构对比 (Architecture Diff)
@@ -437,6 +520,10 @@ R1.5 阶段子智能体任务：扫描全项目，找出名字匹配以上模式
 | R3 深度约束 | 无 | 强制 call_chain_depth >= 3，批量验证时自动检测 |
 | 跨边界表 | 仅 Java IPC API | 语言无关，覆盖6种场景各语言示例 |
 | 输出格式 | {call_chain, blocking_point} | {call_chain, call_chain_depth, path_count, paths_analyzed} |
+| **v2.1: R0.5 阶段** | 不存在 | 安全修复差异考古（git diff 漏洞特征） |
+| **v2.1: 锚点召回** | 覆盖率=字符串存在性 | AnchorRecall=真实 CVE 攻击面命中率，<100% fail-fast |
+| **v2.1: 规则类型** | TAINT_ANALYSIS / PROPERTY_CHECK | + LOGIC_PATTERN（危险谓词） |
+| **v2.1: 提取器** | 覆盖式合并、无 taint-mode 支持 | 增量合并 + taint-mode 提取 + `--reconcile` 对账 |
 
 ---
 

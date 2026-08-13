@@ -75,12 +75,28 @@ def _cwe_of(meta: dict) -> str | None:
 
 
 def _walk_patterns(node, out: list[str]):
-    """递归遍历 pattern-sinks 子树, 收集所有 pattern 字符串。"""
+    """递归遍历 pattern-sinks 子树, 收集所有 pattern / metavariable-regex / pattern-inside 字符串。
+
+    v2.1 (REQ-27): 支持 taint-mode 规则 —— 官方 LFI 类规则 (如 php lang/security/file-inclusion.yaml)
+    的 sink 形如:
+        pattern-inside: $FUNC(...);
+        pattern: $VAR
+        metavariable-regex:
+          metavariable: $FUNC
+          regex: \b(include|include_once|require|require_once)\b
+    旧实现只收集 `pattern:` 且仅取首行调用名, 无法提取这类 sink。此处统一收集
+    pattern / pattern-inside 的调用表达式 与 metavariable-regex 的 regex 值。"""
     if isinstance(node, dict):
         for k, v in node.items():
             if k == "pattern" and isinstance(v, str):
                 out.append(v)
-            elif k in ("pattern-either", "patterns", "pattern-sinks"):
+            elif k == "pattern-inside" and isinstance(v, str):
+                out.append(v)
+            elif k == "metavariable-regex" and isinstance(v, dict):
+                rx = v.get("regex")
+                if isinstance(rx, str):
+                    out.append("METAVARREGEX:" + rx)
+            elif k in ("pattern-either", "patterns", "pattern-sinks", "pattern-where-python"):
                 _walk_patterns(v, out)
             elif isinstance(v, (dict, list)):
                 _walk_patterns(v, out)
@@ -89,9 +105,23 @@ def _walk_patterns(node, out: list[str]):
             _walk_patterns(x, out)
 
 
+# metavariable-regex 值中的函数名分组, 如 \b(include|include_once|require|require_once)\b
+_METAVAR_GROUP_RE = re.compile(r"\((?:[^()|]+\|)*([A-Za-z_][A-Za-z0-9_]*(?:\|[A-Za-z_][A-Za-z0-9_]*)+)\)")
+
+
 def _names_from_patterns(patterns: list[str]) -> list[str]:
     names = []
     for p in patterns:
+        if p.startswith("METAVARREGEX:"):
+            # 提取 \b(include|include_once|require|require_once)\b 中的函数名列表
+            rx = p[len("METAVARREGEX:"):]
+            for m in _METAVAR_GROUP_RE.finditer(rx):
+                group = m.group(1)
+                for name in group.split("|"):
+                    name = name.strip()
+                    if name and not _JUNK.search(name) and not name.isupper():
+                        names.append(name)
+            continue
         # 只取第一行的调用 (多行结构模式如字符串插值不可靠)
         first = p.strip().splitlines()[0] if p.strip() else ""
         for m in _CALL_RE.finditer(first):
@@ -146,6 +176,7 @@ def extract_lang(semgrep_root: Path, lang: str) -> dict[str, set]:
 
 def build_entry(cwe_id: str, names: list[str]) -> dict:
     regex_list = [re.escape(n) + r"\s*\(" for n in names]
+    # v2.1: ast_patterns 也生成, 供 tree-sitter 扫描 (PHP include_expression 等特殊处理由规则库治理)
     return {
         "cwe_id": cwe_id,
         "category": CWE_WHITELIST.get(cwe_id, cwe_id),
@@ -156,6 +187,33 @@ def build_entry(cwe_id: str, names: list[str]) -> dict:
         "sinks": {"regex": regex_list, "ast_patterns": []},
         "sources": {"regex": []},
     }
+
+
+def _merge_entries(existing: list[dict], extracted: dict[str, list[str]]) -> list[dict]:
+    """增量合并 (REQ-27): 以 cwe_id 为单位取并集, 保留既有规则(含人工清洗的
+    regex / ast_patterns / manual 字段)。禁止覆盖式替换。"""
+    by_cwe: dict[str, dict] = {}
+    for e in existing:
+        by_cwe[e.get("cwe_id")] = dict(e)
+    for cwe_id, names in extracted.items():
+        new_names = sorted(set(names))
+        if not new_names:
+            continue
+        if cwe_id in by_cwe:
+            base = by_cwe[cwe_id]
+            old_regex = base.get("sinks", {}).get("regex", [])
+            old_ast = base.get("sinks", {}).get("ast_patterns", [])
+            # 从新 regex 中剔除已存在的, 仅追加增量
+            old_escaped = set(old_regex)
+            added = [re.escape(n) + r"\s*\(" for n in new_names]
+            extra = [r for r in added if r not in old_escaped]
+            base.setdefault("sinks", {})["regex"] = old_regex + extra
+            base["sink_count"] = len(base["sinks"]["regex"]) + len(base["sinks"].get("ast_patterns", []))
+        else:
+            by_cwe[cwe_id] = build_entry(cwe_id, new_names)
+    # 保持稳定顺序: 既有条目在前, 新增在后
+    ordered = [e for c, e in by_cwe.items() if e.get("provenance") != "semgrep-new" or True]
+    return list(by_cwe.values())
 
 
 def extract_all(semgrep_root: Path, langs: list[str]) -> dict[str, list[dict]]:
@@ -172,6 +230,21 @@ def extract_all(semgrep_root: Path, langs: list[str]) -> dict[str, list[dict]]:
     return out
 
 
+def reconcile(prof_rules: dict, extracted: dict[str, list[str]]) -> dict:
+    """对账 (REQ-27): 输出 [官方有, skill 无] / [skill 有, 官方无] 差异清单。"""
+    diff = {"official_only": {}, "skill_only": {}}
+    for lang, by_cwe in extracted.items():
+        skill_cwes = {e.get("cwe_id") for e in prof_rules.get(lang, [])}
+        official_cwes = set(by_cwe)  # by_cwe 已是 cwe set
+        miss = official_cwes - skill_cwes
+        extra = skill_cwes - official_cwes
+        if miss:
+            diff["official_only"][lang] = sorted(miss)
+        if extra:
+            diff["skill_only"][lang] = sorted(extra)
+    return diff
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Semgrep -> security_profiles.json sink extractor")
     here = Path(__file__).resolve().parent
@@ -181,6 +254,8 @@ def main() -> int:
     ap.add_argument("--langs", default=",".join(DEFAULT_LANGS),
                     help="逗号分隔的语言列表, 默认 php,ruby,swift,bash")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--reconcile", action="store_true",
+                    help="只输出 [官方有, skill 无] / [skill 有, 官方无] 对账差异, 不写回 profile")
     args = ap.parse_args()
 
     if not HAS_YAML:
@@ -206,18 +281,64 @@ def main() -> int:
         print(json.dumps(extracted, indent=2, ensure_ascii=False))
         return 0
 
-    # 写回: 只更新指定语言的 rules 段, 标注 semgrep_revision
     prof = json.loads(Path(args.output).read_text(encoding="utf-8"))
     prof.setdefault("rules", {})
+
+    if args.reconcile:
+        diff = reconcile(prof["rules"], {l: {e["cwe_id"] for e in es} for l, es in extracted.items()})
+        print("[RECONCILE] 官方有、skill 无 (规则盲区, 需补):")
+        for lang, cwes in diff["official_only"].items():
+            print(f"  {lang}: {cwes}")
+        print("[RECONCILE] skill 有、官方无 (可能为手工补丁/误标, 需核):")
+        for lang, cwes in diff["skill_only"].items():
+            print(f"  {lang}: {cwes}")
+        return 0
+
+    # v2.1 (REQ-27): 增量合并 — 以 cwe_id 为并集保留既有规则与 manual_additions,
+    # 不再覆盖式替换
     prof["semgrep_revision"] = rev
     for lang, entries in extracted.items():
-        if entries:
-            prof["rules"][lang] = entries
-            # 从 manual_additions 移除已被 semgrep 覆盖的条目(避免重复)
+        if not entries:
+            continue
+        existing = prof["rules"].get(lang, [])
+        prof["rules"][lang] = _merge_entries_by_names(existing, entries)
     Path(args.output).write_text(
         json.dumps(prof, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"[+] Wrote {args.output}", file=sys.stderr)
+    print(f"[+] Wrote {args.output} (增量合并)", file=sys.stderr)
     return 0
+
+
+def _merge_entries_by_names(existing: list[dict], new_entries: list[dict]) -> list[dict]:
+    """按 cwe_id 并集合并 sink names, 保留既有条目全部字段 (增量合并, REQ-27)。"""
+    _SUFFIX = r"\s*\("  # 与 build_entry 的 re.escape(n) + r"\s*\(" 对应
+    def _names_of(rx_list):
+        out = set()
+        for rx in rx_list:
+            if rx.endswith(_SUFFIX):
+                out.add(rx[:-len(_SUFFIX)])
+        return out
+
+    by_cwe: dict[str, dict] = {}
+    for e in existing:
+        by_cwe[e.get("cwe_id")] = dict(e)
+    for ne in new_entries:
+        cwe = ne.get("cwe_id")
+        if not cwe:
+            continue
+        names = _names_of(ne.get("sinks", {}).get("regex", []))
+        if not names:
+            continue
+        if cwe in by_cwe:
+            base = by_cwe[cwe]
+            old_names = _names_of(base.get("sinks", {}).get("regex", []))
+            added = sorted(names - old_names)
+            if added:
+                base.setdefault("sinks", {}).setdefault("regex", []).extend(
+                    re.escape(n) + r"\s*\(" for n in added)
+                base["sink_count"] = len(base["sinks"].get("regex", [])) + len(base["sinks"].get("ast_patterns", []))
+        else:
+            by_cwe[cwe] = ne
+    return list(by_cwe.values())
 
 
 if __name__ == "__main__":

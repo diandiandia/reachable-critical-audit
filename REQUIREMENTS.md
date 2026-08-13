@@ -40,6 +40,11 @@
 | **REQ-21** | Mode A' batch 调度器（新增） | P0 (Must Have) | 提供 `tools/batch_verify.py`，纯 Python 实现，不走 CLI 进程，支持 --stage next/collect/assert 循环，每批 3~4 个 task 并发验证。 |
 | **REQ-22** | Rust unsafe 安全注释豁免（新增） | P1 (Should Have) | `ast_scanner.py` 检查 Rust unsafe 调用相邻行是否有 `// SAFETY:` 注释，有则自动降级为 NEEDS_REVIEW。 |
 | **REQ-23** | Go 框架规则库（新增） | P1 (Should Have) | 向 `wrapper_detection.go` 和 `manual_additions.go` 注入 CodeQL/CVE/OWASP 衍生的 Go 框架特定 sink。 |
+| **REQ-24** | 锚点召回验证（AnchorRecall，v2.1 新增） | P0 (Must Have) | 每语言绑定 8~15 个真实 CVE sink 作为 ground-truth 锚点；R0 self-check 必须全部命中，未命中该语言规则库判 FAIL。报告必须输出 AnchorRecall 指标。 |
+| **REQ-25** | 安全修复差异考古（R0.5 阶段，v2.1 新增） | P0 (Must Have) | 对目标 repo 扫描安全相关 commit 并 diff parent..commit，提取"新增校验/被删危险路径"特征，检查目标版本是否含该漏洞特征，产出疑似未修复清单入 R3。 |
+| **REQ-26** | LOGIC_PATTERN 危险谓词规则（v2.1 新增） | P1 (Should Have) | 新增第三类规则类型，匹配"授权/白名单校验被弱化"模式（hash-only 匹配、远端计数无上限循环、前缀校验代替全名校验、null 分支跳过黑名单）。 |
+| **REQ-27** | 提取器完整性修复（v2.1 新增） | P0 (Must Have) | `semgrep_extractor.py` 必须支持 `mode: taint` + `metavariable-regex` 规则；合并改为增量式（保留 `manual_additions`）；新增 `--reconcile` 输出"官方有、skill 无"差异清单。 |
+| **REQ-28** | 语言适配 sink 词表与上下文排除（v2.1 新增） | P1 (Should Have) | sink 匹配必须按语言限定接收者/上下文，排除框架内部同名方法（ASM `Frame.execute`、javac `JCTree.exec`、Go 裸 `.Exec`/`.Add` 等）导致的跨语言伪通用噪音。 |
 
 ---
 
@@ -59,6 +64,7 @@
 ### REQ-03: AST 依赖 bootstrap + 物理工具 R0 self-check 与全语言 AST 对齐
 *   **详细描述**：Skill 启动后第一步（R0 阶段）必须先完成本地依赖 bootstrap：优先使用 **skill 安装目录** 下的 `.venv/bin/python3`；若该 `.venv` 不存在则创建；若 self-check 报告 `tree-sitter` 或有规则语言 grammar 缺失，则在 skill-local `.venv` 中安装 `tree-sitter` 及 Java/C++/Python/JavaScript/Go/Rust/C#/PHP/Ruby/Swift/Kotlin/Scala grammar 包后重试一次。不得在被审计项目根目录创建 `.venv`，不得把依赖安装到系统 Python；遇到 PEP 668 / externally-managed-environment 时必须改用 skill-local `.venv`。Mode B 的 `run_workflow.js` 必须执行同等 bootstrap；`REACHABLE_AUDIT_VENV` 可显式覆盖 skill-local venv 目录，`PYTHON_BIN` 可显式覆盖 Python 解释器，但覆盖后失败应 fail-fast，不得擅自污染系统环境。
 *   **self-check 要求**：bootstrap 完成后必须运行 `<skill_dir>/.venv/bin/python3 tools/ast_scanner.py --self-check`（或 `PYTHON_BIN` 指定的 Python），确认 `tree-sitter`、对应语言 grammar 以及 `security_profiles.json` 规则库装载状态。脚本输出结构化 JSON（包含 `status`, `has_tree_sitter`, `configured_languages` (全部 15 种), `wrapper_detection_languages` (全部 15 种), `required_grammar_languages`, `grammar_missing`, `grammar_coverage_ok`, `total_rules`, `coverage_rule_count`, `manual_review_regex_rules`, `ast_patterns_coverage_pct`, `ast_coverage_threshold_pct`, `ast_coverage_ok`, `ast_gap_by_language`），self-check 校验规则库加载失败、tree-sitter 不可用、任一有规则语言 grammar 缺失、机器覆盖率低于阈值（返回 exit 1）即 fail-fast 终止审计流程，**绝不允许**降级为"由大模型脑补 AST"的模糊模式。CodeQL L0 规则须达到 **≥ 95%**（`AST_COVERAGE_THRESHOLD`）的机器可校验支撑：Tree-Sitter AST S-expression 或 Go/Swift 结构化模型（`go_models` / `swift_models`）。`manual_additions` 中带 `source_reason` 且无 `codeql_model` 的人工补丁不计入覆盖率分母，单独计入 `manual_review_regex_rules`；这类 regex-only 命中必须在 R1/R3 降级复核，不能直接计入 REACHABLE 候选。
+*   **锚点召回自检（REQ-24）**：self-check 必须加载 `resources/anchor_registry.json`，对每个有锚点的语言运行 `_smoke_check_language` 级别的锚点命中测试。**锚点命中率 < 100% 时该语言规则库判 FAIL**（`anchor_recall_pct` 字段报告），阻止审计启动。锚点是真实 CVE sink（如 PHP `include $_GET['x']` → CVE-2018-12613；Java `checkAutoType` hash-only 白名单 → fastjson2），防止"覆盖率 100% 但核心攻击面零命中"的指标失真。
 
 ### REQ-04: 物理过滤低危/规范与三方库噪音
 *   **详细描述**：初筛与审计阶段必须物理忽略：未采用驼峰命名、缺失文件注释、非安全场景弱随机数、代码风格违规等规范类问题。同时必须自动识别并过滤第三方压缩/混淆库（文件名含 `.min.`、路径组件为 `vendor/`、`node_modules/`、`third_party/`、`libs`、`.agents`、`.codex`、`.venv`、`reachable-critical-audit` 等典型路径），匹配行长度超过 1000 字符强制截断并标注 `... [TRUNCATED]` 以防空提示词触发模型安全策略或导致子会话挂起。路径过滤必须按相对路径组件判断，禁止用绝对路径子串匹配，以免工作区名包含 `build` 等词时整库误跳过。
@@ -104,6 +110,7 @@
     *   **Noise Reduction Rate** = `UNREACHABLE` / 已验证候选
     *   **Sink Discovery Rate** *(新增)* = `R1(L0) 命中` / `(R1 + R1.5 + L2 + R4)` 总候选 — 反映 L0 规则库的召回能力。
     *   **False Negative Risk** *(新增)* = `(L1 占比 + R4 REACHABLE 占比)` — 反映规则盲区。
+    *   **Anchor Recall** *(v2.1 新增)* = 锚点命中数 / `resources/anchor_registry.json` 中该语言锚点总数 — 规则库对真实 CVE 攻击面的召回，**不达 100% 禁止声称 Coverage/Reachability 有效**，与 Reachability Rate 并列输出。
     *   **Origin Breakdown** *(新增)* = 输出 `L0`, `L1`, `L2`, `R4` 的各分类候选统计数。
 *   **强制约束**：明确分母为"已入队候选数"（即进入 verify_queue 的总数），`NEEDS_REVIEW` 计入分母，采样策略与全量指标必须在 JSON 和 Markdown 报告中双输出。
 
@@ -166,6 +173,43 @@
     5.  输出到 `security_profiles.json` 对应语言段，并写入 `codeql_revision` 字段记录所用 CodeQL 版本。
 *   **强制约束**：每次更新 `security_profiles.json` 必须更新 `codeql_revision` 字段；手工补丁（`manual_additions` 段）必须标注来源理由与不在 CodeQL 中的原因。Go/Swift 禁止把 `Exec` / `Query` / `init` / `write` 等裸方法名作为高置信初筛依据；`ast_scanner.py` 必须优先使用结构化模型上下文，regex-only 命中只能降级为 `NEEDS_REVIEW` 或被上下文过滤。
 
+### REQ-24: 锚点召回验证（AnchorRecall）
+*   **详细描述**：规则库有效性必须用真实 CVE 攻击面度量，而不是字符串存在性：
+    *   `resources/anchor_registry.json` 固化每语言的 ground-truth 锚点：`{cwe_id, category, sample_code, cve}`，覆盖该语言最常见的高危 sink（如 PHP `include $_GET['x']` / Java `checkAutoType` hash 白名单 / Go `exec.Command(shell, userInput)`）。
+    *   `ast_scanner.py --self-check` 对每个锚点跑 `_smoke_check_language` 级别的命中测试；**Anchor Recall = 命中锚点数 / 锚点总数，< 100% 该语言判 FAIL**（exit 1），阻止审计启动。
+    *   报告 `quantified_metrics` 必须输出 `anchor_recall_pct`（按语言 + 全局）。
+*   **背景**：v2.1 基于两次实测（phpMyAdmin 4.8.5 漏 CVE-2018-12613 LFI、fastjson2 2.0.62 漏 checkAutoType hash 绕过）引入。fastjson2 报告曾声称 Coverage 100% / Sink Discovery 99.66%，但 CWE-502 核心逻辑零命中——**无锚点召回的覆盖率是自欺欺人**。
+
+### REQ-25: 安全修复差异考古（R0.5 阶段）
+*   **详细描述**：在 R1 静态扫描之前（或并行）执行"修复 commit 考古"，利用 git 历史中的安全修复作为漏洞特征来源：
+    1.  输入目标 repo 与指定 tag/commit。
+    2.  `git log --grep="security|autotype|rce|bypass|cve|deny|fix|safe|exploit"` 收集候选修复 commit。
+    3.  对每个候选 commit 执行 `git diff <parent>..<commit>`，提取"新增的校验"与"被删除/弱化的危险路径"作为漏洞特征。
+    4.  检查**目标版本**是否含该特征（如 hash-only 白名单 `binarySearch(hash)>=0` + `loadClass`）。
+    5.  产出 `.audit_results/r05_diff_archaeology.json`，标注 `[疑似未修复 / 已修复]`，疑似项直接入 R3 验证队列。
+*   **背景**：fastjson2 AutoType hash 伪造绕过（2.0.63 修复 commit `ec47e24c4`）与 phpMyAdmin LFI 均未被静态规则捕获，唯一可靠定位手段是版本差异考古。对"迭代修 N 轮"的库（AutoType/RCE 类），该阶段产出价值高于其余阶段之和。
+
+### REQ-26: LOGIC_PATTERN 危险谓词规则（第三类规则类型）
+*   **详细描述**：规则类型从 `TAINT_ANALYSIS` / `PROPERTY_CHECK` 扩展出 **`LOGIC_PATTERN`**，匹配"授权/白名单/边界校验被弱化"的语义缺陷，不依赖污点链：
+    *   hash-only 白名单：`Arrays.binarySearch(hashCodes, hash) >= 0` 后直接 `loadClass(typeName)`（未校验完整类名）→ fastjson2 类。
+    *   远端计数无上限循环：远端 uint32 驱动 `for(i=0;i<count;i++)` 写入固定大小数组且无 `count<=MAX` 比对 → tengine `parse_rc_info` 类。
+    *   前缀校验代替全名校验 / `expectClass==null` 分支跳过黑名单。
+*   **强制约束**：LOGIC_PATTERN 定义固化在 `security_profiles.json` 的 `rules.<lang>[]`（`type: "LOGIC_PATTERN"`），`ast_scanner.py` 以 AST 模式匹配，产出候选并入 R3。
+
+### REQ-27: 提取器完整性修复与对账
+*   **详细描述**：修复 `semgrep_extractor.py` / `codeql_sink_extractor.py` 三个缺陷：
+    1.  **taint-mode 支持**：必须能提取 `mode: taint` + `pattern-sinks` + `metavariable-regex` 规则（如 semgrep `php/lang/security/file-inclusion.yaml` 的 `\b(include|include_once|require|require_once)\b`），当前仅提取 `pattern: $FUNC(...)` 标识符。
+    2.  **增量合并**：提取结果与 `manual_additions` / 既有规则取**并集**，禁止覆盖式替换；`manual_additions` 段永远保留。
+    3.  **对账输出**：新增 `--reconcile` 模式，输出 `[官方有, skill 无]` / `[skill 有, 官方无]` 差异清单，作为规则库治理输入。
+*   **背景**：实测对账证明——即使重跑 extractor，官方 `file-inclusion.yaml`（CWE-98）也进不了 skill，因为提取逻辑跳过了 taint-mode 规则；且合并是覆盖式，会抹掉手工清洗结果。
+
+### REQ-28: 语言适配 sink 词表与上下文排除
+*   **详细描述**：sink 匹配必须带语言感知的上下文约束，消除跨语言伪通用噪音：
+    *   Java `exec`/`execute` 必须限定接收者（`Runtime.exec` / `ProcessBuilder`），排除 ASM `Frame.execute`、javac `JCTree.exec`。
+    *   Go `Exec`/`Add`/`Query` 裸方法名不作为高置信 sink（方法调用上下文）。
+    *   PHP 规则不得命中非 PHP 源（`.js`/`.py` 文件）；CWE-22 类 sink 限定 `include/require/file_get_contents/fopen/readfile/unlink` 等 PHP 文件操作，排除 `window.open`/`indexedDB.open`。
+*   **强制约束**：语言适配规则（接收者排除表 / 语言文件类型白名单）固化在 `security_profiles.json` 的 `language_adaptation` 段。
+
 ---
 
 ## 📋 修订前后对照表 (Change Log)
@@ -187,3 +231,4 @@
 | REQ-06 | 无深度约束 | **强制最小深度3层** | 防止子智能体按上下文归类而非追踪数据流导致遗漏 |
 | REQ-09 | 仅状态机 | **增加调用链深度门禁** | batch_verify.py自动验证depth<3→NEEDS_REVIEW |
 | REQ-19 | 仅Java ContentResolver/Binder | **语言无关化** | 新增Python/JS/C/C++/Rust跨边界示例 |
+| REQ-24~28 | 不存在 | **v2.1 新增** | 锚点召回验证 / R0.5 修复差异考古 / LOGIC_PATTERN 危险谓词 / 提取器完整性修复 / 语言适配 sink 词表 —— 由 phpMyAdmin LFI 漏检 + fastjson2 AutoType hash 绕过两次实测驱动 |
