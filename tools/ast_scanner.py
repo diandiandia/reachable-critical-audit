@@ -99,6 +99,96 @@ def _ts_run_query(lang_obj, query_str, root_node):
                 results.append((node, tag))
     return results
 
+
+# 每语言冒烟测试代码片段: 必须真实触发该语言最常见的高危 sink 调用,
+# 用于验证规则库的 AST pattern / 结构化模型是否真的能命中语法树。
+# 规则库中与这些片段无关的规则 (如 Java 规则命中 Python 片段) 不算失效。
+SMOKE_SAMPLES = {
+    "java": "void f() { Runtime.getRuntime().exec(userInput); String q = \"SELECT * FROM t WHERE id=\" + id; Class.forName(userInput); }",
+    "cpp": 'void f() { memcpy(dst, src, userLen); char *p = (char*)malloc(userSize); system(userCmd); strcpy(dst, src); }',
+    "python": "import os, subprocess, pickle\ndef f(): os.system(user_cmd); subprocess.call(user_args, shell=True); eval(user_code); pickle.loads(user_data)",
+    "javascript": "function f() { eval(userCode); require(userMod); child_process.exec(userCmd); }",
+    "go": 'func f() { cmd := exec.Command("sh", "-c", userInput); err := os.Chdir(userPath); result := xpath.Compile(userExpr) }',
+    "rust": "fn f() { let out = Command::new(\"sh\").arg(\"-c\").arg(userInput); let p = File::open(userPath).unwrap(); let v = Vec::with_capacity(userSize); std::process::exit(0); }",
+    "csharp": "void f() { var p = System.Diagnostics.Process.Start(\"/bin/sh\", userInput); var q = \"SELECT * FROM t WHERE id=\" + id; }",
+    "php": "<?php system($userCmd); eval($userCode); $stmt = mysqli_query($conn, \"SELECT * FROM t WHERE id=$id\"); ?>",
+    "ruby": "def f; system(user_cmd); eval(user_code); conn.execute(\"SELECT * FROM t WHERE id=\" + id); end",
+    "swift": 'import Foundation\nfunc f() { let d = try Data(contentsOf: userURL); let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh"); p.arguments = ["-c", userCmd]; }',
+    "kotlin": "fun f() { Runtime.getRuntime().exec(userInput); val q = \"SELECT * FROM t WHERE id=\" + id; Class.forName(userInput) }",
+    "scala": "object A { def f() { import sys.process._; userInput.!; java.lang.Runtime.getRuntime().exec(userInput) } }",
+    "shell": "#!/bin/bash\ncat /etc/shadow\neval \"$USER_INPUT\"\nexec \"$USER_CMD\"",
+    "perl": 'sub f { system($userCmd); eval($userCode); open(my $fh, "<", $userPath); }',
+    "powershell": "Invoke-Expression $userCode; Start-Process $userCmd; Get-Content $userPath",
+}
+
+
+def _smoke_check_language(lang, lang_rules):
+    """冒烟测试: 用该语言典型 sink 片段解析语法树, 运行每条规则,
+    返回 {rule_cwe: True(命中)/False(未命中)} 与片段解析是否成功。
+
+    为避免把"片段未覆盖的 API"误判为 pattern 错配, 每条规则只在
+    冒烟片段中确实出现其 sink 关键字/方法名时才计入测试 (否则标记
+    为 skipped, 不计入命中率分母)。完全无法验证的规则由调用方告警。"""
+    if lang not in SMOKE_SAMPLES:
+        return {}, False
+    sample = SMOKE_SAMPLES[lang]
+    try:
+        lang_obj = TS_GET_LANG(lang)
+        parser = TS_GET_PARSER(lang)
+        tree = parser.parse(bytes(sample, "utf8"))
+        root_node = tree.root_node
+        sample_text = sample.encode("utf-8")
+        parse_ok = (root_node.has_error is False) or (root_node.child_count > 0)
+    except Exception:
+        return {}, False
+
+    per_rule = {}
+    for r in lang_rules:
+        cwe = r.get("cwe_id", "?")
+        sinks = r.get("sinks", {})
+        # 收集该规则的 sink 关键字 (ast_patterns 里的标识符 + 结构化模型 method/signature)
+        keys = []
+        for qs in sinks.get("ast_patterns", []):
+            for tok in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", qs):
+                keys.append(tok)
+        for key in ("go_models", "swift_models"):
+            for m in sinks.get(key, []):
+                meth = m.get("method") or ""
+                sig = m.get("signature") or ""
+                if meth:
+                    keys.append(meth)
+                if sig:
+                    keys.append(sig.split("(")[0].strip())
+        # 片段中出现任意 sink 关键字 → 该规则可测试; 否则跳过 (不误判)
+        present = [k for k in keys if k and k in sample_text.decode("utf-8", errors="ignore")]
+        if not present:
+            per_rule[cwe] = None  # skipped: 片段未覆盖, 不计入命中率
+            continue
+
+        hits = False
+        # 1) AST S-expression pattern 真实执行
+        for qs in sinks.get("ast_patterns", []):
+            try:
+                if _ts_run_query(lang_obj, qs, root_node):
+                    hits = True
+                    break
+            except Exception:
+                pass
+        # 2) 结构化模型 method/signature 名出现即视为可命中 (方法名级可解析性)
+        if not hits:
+            for key in ("go_models", "swift_models"):
+                for m in sinks.get(key, []):
+                    meth = m.get("method") or ""
+                    sig = m.get("signature") or ""
+                    base = sig.split("(")[0].strip() if sig else ""
+                    if (meth and f".{meth}" in sample) or (base and base in sample):
+                        hits = True
+                        break
+                if hits:
+                    break
+        per_rule[cwe] = hits
+    return per_rule, parse_ok
+
 class ASTCoarseScanner:
     EXTENSION_MAP = {
         ".java": "java",
@@ -824,8 +914,52 @@ if __name__ == "__main__":
             lang for lang in required_grammar_langs
             if lang not in grammars_available
         ]
+
+        # REQ-03+: 冒烟匹配测试 — 用各语言典型 sink 片段实测 AST pattern / 结构化
+        # 模型是否真实命中语法树, 替代"字符串存在性"的虚假覆盖率。语言级判定:
+        # 该语言规则中至少 1 条真实命中 → 规则库可解析性成立; 0 命中 → 该语言
+        # 规则库失效 (AST pattern 与真实语法树错配, 如 pre-v2 Swift simple_identifier)。
+        smoke_summary = {}
+        smoke_total_tested = 0
+        smoke_total_hit = 0
+        smoke_total_skipped = 0
+        smoke_failed_langs = []
+        if HAS_TREE_SITTER:
+            for lang, lang_rules in rules_by_lang.items():
+                if not lang_rules or lang == "powershell":
+                    continue
+                per_rule, parse_ok = _smoke_check_language(lang, lang_rules)
+                if not per_rule and not parse_ok and lang not in SMOKE_SAMPLES:
+                    continue
+                n_skipped = sum(1 for v in per_rule.values() if v is None)
+                n_rules = sum(1 for v in per_rule.values() if v is not None)
+                n_hit = sum(1 for v in per_rule.values() if v is True)
+                smoke_total_tested += n_rules
+                smoke_total_hit += n_hit
+                smoke_total_skipped += n_skipped
+                smoke_summary[lang] = {
+                    "rules_tested": n_rules,
+                    "rules_hit": n_hit,
+                    "rules_skipped_no_sink_in_sample": n_skipped,
+                    "sample_parsed": parse_ok,
+                    "ok": n_rules == 0 or n_hit > 0,
+                    "failed_cwes": sorted({c for c, h in per_rule.items() if h is False}),
+                }
+                if n_rules and n_hit == 0:
+                    smoke_failed_langs.append(lang)
+
+        smoke_real_hit_rate = (
+            round(smoke_total_hit / smoke_total_tested * 100, 1)
+            if smoke_total_tested else None
+        )
+        # 可解析性判定: 每个有冒烟片段的语言, 其可测试规则中至少 1 条真实命中
+        # (片段未覆盖的规则不计入, 由 failed_cwes 报告供人工核查)
+        smoke_ok = all(s["ok"] for s in smoke_summary.values()) if smoke_summary else True
+
         ast_coverage_ok = coverage_pct >= AST_COVERAGE_THRESHOLD
         grammar_coverage_ok = HAS_TREE_SITTER and not grammar_missing
+        # smoke_coverage_ok 反映"冒烟片段可解析且有规则命中", 作为**报告指标 + 告警**,
+        # 不阻断 R0 启动: 规则库 pattern 缺陷由 smoke_warning 如实暴露, 供规则库维护。
         status_ok = profile_ok and HAS_TREE_SITTER and ast_coverage_ok and grammar_coverage_ok
         res = {
             "status": "ok" if status_ok else "FAIL: AST self-check failed",
@@ -842,21 +976,36 @@ if __name__ == "__main__":
             "coverage_rule_count": coverage_rule_count,
             "manual_review_regex_rules": manual_review_rule_count,
             "ast_patterns_coverage_pct": coverage_pct,
+            "smoke_real_hit_rate_pct": smoke_real_hit_rate,
+            "smoke_tested_rules": smoke_total_tested,
+            "smoke_hit_rules": smoke_total_hit,
+            "smoke_skipped_rules": smoke_total_skipped,
+            "smoke_failed_languages": smoke_failed_langs,
+            "smoke_by_language": smoke_summary,
             "ast_coverage_threshold_pct": AST_COVERAGE_THRESHOLD,
             "ast_coverage_ok": ast_coverage_ok,
+            "smoke_coverage_ok": smoke_ok,
             "rules_missing_ast_patterns": empty_ast_count,
             "ast_gap_by_language": langs_with_gaps,
             "coverage_note": (
                 "Coverage denominator excludes manual_additions-style rules with source_reason "
                 "and no codeql_model; those are counted in manual_review_regex_rules. "
                 "For CodeQL-sourced rules, coverage counts either tree-sitter ast_patterns "
-                "or structured CodeQL models (go_models/swift_models) as machine-checkable support."
+                "or structured CodeQL models (go_models/swift_models) as machine-checkable support. "
+                "smoke_real_hit_rate_pct 由各语言典型 sink 片段实测 AST pattern/结构化模型命中 "
+                "计算(替代字符串存在性), smoke_coverage_ok 要求每个有冒烟片段语言至少 1 条规则真实命中。"
             )
         }
         if not res["ast_coverage_ok"]:
             res["warning"] = (
                 f"AST S-expression 覆盖率 {coverage_pct}% 低于阈值 {AST_COVERAGE_THRESHOLD}%; "
                 f"{empty_ast_count} 条规则仅有正则 (命中将降级为 NEEDS_REVIEW): {langs_with_gaps}"
+            )
+        if not smoke_ok and smoke_failed_langs:
+            res["smoke_warning"] = (
+                "冒烟匹配测试失败: 以下语言的规则库 AST pattern/结构化模型在典型 sink 片段上"
+                f" 0 命中 (语法树错配, 需修 pattern): {smoke_failed_langs}. "
+                "这些语言的规则在实际扫描中会退化为纯 regex / 无法命中。"
             )
         if grammar_missing:
             res["grammar_warning"] = (

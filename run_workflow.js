@@ -1071,9 +1071,9 @@ async function executeWorkflow(workspacePath) {
                 console.log(`  ${statusIcon} [${cand.id}] → ${verdict}${propMsg}${colors.reset}`);
 
             } catch (err) {
-                console.error(`${colors.red}  ❌ [${cand.id}] 异常: ${err.message.slice(0, 120)}${colors.reset}`);
-                saveQueue(queuePath, queueObj.raw, queue);
-                throw new Error(`R3 verifier failed for ${cand.id}: ${err.message}`);
+                // 保持 PENDING 而非终止整批: 个别候选超时/失败时, 其余候选继续验证,
+                // 该候选保留 PENDING, 下一轮 --stage next / 重新运行会自动重试。
+                console.error(`${colors.red}  ❌ [${cand.id}] 异常: ${err.message.slice(0, 120)} (保持 PENDING, 下轮重试)${colors.reset}`);
             }
 
             totalVerified++;

@@ -8142,7 +8142,7 @@
             "TypeNameHandling\\s*\\("
           ],
           "ast_patterns": [
-            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#eq? @fn \"Deserialize\")))"
+            "(invocation_expression function: (member_access_expression name: (identifier) @fn (#eq? @fn \"Deserialize\")))"
           ]
         },
         "sources": {
@@ -8187,7 +8187,7 @@
             "Schema\\s*\\("
           ],
           "ast_patterns": [
-            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#match? @fn \"^(LoadXml|Load)$\")))"
+            "(invocation_expression function: (member_access_expression name: (identifier) @fn (#match? @fn \"^(LoadXml|Load)$\")))"
           ]
         },
         "sources": {
@@ -8288,7 +8288,7 @@
             "sinkStuff\\s*\\("
           ],
           "ast_patterns": [
-            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#match? @fn \"^(ExecuteNonQuery|ExecuteReader|ExecuteScalar)$\")))"
+            "(invocation_expression function: (member_access_expression name: (identifier) @fn (#match? @fn \"^(ExecuteNonQuery|ExecuteReader|ExecuteScalar)$\")))"
           ]
         },
         "sources": {
@@ -8343,7 +8343,7 @@
             "Process\\.Start"
           ],
           "ast_patterns": [
-            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#eq? @fn \"Start\")))"
+            "(invocation_expression function: (member_access_expression name: (identifier) @fn (#eq? @fn \"Start\")))"
           ]
         },
         "sources": {
@@ -8364,7 +8364,7 @@
             "WebRequest\\.Create"
           ],
           "ast_patterns": [
-            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#match? @fn \"^(GetAsync|PostAsync|Create)$\")))"
+            "(invocation_expression function: (member_access_expression name: (identifier) @fn (#match? @fn \"^(GetAsync|PostAsync|Create)$\")))"
           ]
         },
         "sources": {
@@ -8385,7 +8385,7 @@
             "Path\\.Combine"
           ],
           "ast_patterns": [
-            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#match? @fn \"^(Open|ReadAllText|Combine)$\")))"
+            "(invocation_expression function: (member_access_expression name: (identifier) @fn (#match? @fn \"^(Open|ReadAllText|Combine)$\")))"
           ]
         },
         "sources": {
@@ -8443,7 +8443,7 @@
             "WindowsIdentity\\.Impersonate"
           ],
           "ast_patterns": [
-            "(invocation_expression expression: (member_access_expression name: (identifier) @fn (#eq? @fn \"Impersonate\")))"
+            "(invocation_expression function: (member_access_expression name: (identifier) @fn (#eq? @fn \"Impersonate\")))"
           ]
         },
         "sources": {
@@ -13537,7 +13537,7 @@
             "open\\(.*\\|.*\\)"
           ],
           "ast_patterns": [
-            "(function_call function: (identifier) @func (#match? @func \"^(system|exec|qx)$\"))"
+            "(function_call_expression function: (_) @func (#match? @func \"^(system|exec|qx)$\"))"
           ]
         },
         "sources": {
@@ -13558,7 +13558,7 @@
             "eval\\s+\\$.*"
           ],
           "ast_patterns": [
-            "(function_call function: (identifier) @func (#match? @func \"^(eval)$\"))"
+            "(eval_expression) @e"
           ]
         },
         "sources": {
@@ -13599,7 +13599,7 @@
             "open\\(.*<.*\\$.*\\)"
           ],
           "ast_patterns": [
-            "(function_call function: (identifier) @func (#match? @func \"^(open|read)$\"))"
+            "(function_call_expression function: (_) @func (#match? @func \"^(open|read)$\"))"
           ]
         },
         "sources": {
@@ -13619,7 +13619,7 @@
             "print\\s+\\$.*"
           ],
           "ast_patterns": [
-            "(function_call function: (identifier) @func (#match? @func \"^(print|say)$\"))"
+            "(function_call_expression function: (_) @func (#match? @func \"^(print|say)$\"))"
           ]
         },
         "sources": {
@@ -13681,7 +13681,7 @@
             "Digest::MD5"
           ],
           "ast_patterns": [
-            "(function_call function: (identifier) @func (#match? @func \"^(md5|sha1)$\"))"
+            "(function_call_expression function: (_) @func (#match? @func \"^(md5|sha1)$\"))"
           ]
         },
         "sources": {
@@ -13702,7 +13702,7 @@
             "die\\s+\\$.*"
           ],
           "ast_patterns": [
-            "(function_call function: (identifier) @func (#match? @func \"^(warn|die)$\"))"
+            "(function_call_expression function: (_) @func (#match? @func \"^(warn|die)$\"))"
           ]
         },
         "sources": {
