@@ -20,6 +20,16 @@ class WorkflowContractTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
+    def _load_batch_verify_module(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "batch_verify", REPO_ROOT / "tools" / "batch_verify.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     def test_l2_fallback_rules_are_configured_top10(self):
         profile = json.loads((REPO_ROOT / "resources" / "security_profiles.json").read_text())
         rules = profile.get("l2_fallback_rules", [])
@@ -217,6 +227,40 @@ console.log(JSON.stringify({
         self.assertTrue(ignored(".venv/lib/python/site-packages/pkg.py"))
         self.assertTrue(ignored(".codex/skills/reachable-critical-audit/SKILL.md"))
         self.assertFalse(ignored("src/service/auth.py"))
+
+    def test_scanner_l2_metadata_ignores_non_source_extensions(self):
+        module = self._load_ast_scanner_module()
+        scanner = module.ASTCoarseScanner(REPO_ROOT / "resources" / "security_profiles.json")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "README.md").write_text("# docs\n")
+            (root / "package-lock.json").write_text("{}\n")
+            (root / ".audit_results").mkdir()
+            (root / ".audit_results" / "verify_queue.json").write_text("{}\n")
+
+            _, meta = scanner.scan(td)
+            self.assertFalse(meta["l2_required"])
+            self.assertEqual(meta["l2_exts"], [])
+
+            (root / "service.erl").write_text("danger(Command) -> os:cmd(Command).\n")
+            _, meta = scanner.scan(td)
+            self.assertTrue(meta["l2_required"])
+            self.assertEqual(meta["l2_exts"], [{"ext": ".erl", "count": 1}])
+
+    def test_r15_language_detection_ignores_non_product_dirs(self):
+        module = self._load_batch_verify_module()
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for rel in ["src/app.py", "tools/helper.py", "scripts/setup.py", "mock/fake.py"]:
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text("print('x')\n")
+
+            langs, counts = module._detect_languages(td)
+            self.assertEqual(langs, ["python"])
+            self.assertEqual(counts, {"python": 1})
 
     def test_codeql_profile_preserves_go_swift_structured_models(self):
         profile = json.loads((REPO_ROOT / "resources" / "security_profiles.json").read_text())

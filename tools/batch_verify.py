@@ -54,7 +54,8 @@ _EXT_LANG = {
 _R15_IGNORE_DIRS = {"node_modules", ".git", ".audit_results", ".agents", ".codex",
                     ".venv", "__pycache__", "reachable-critical-audit", "build",
                     "target", "dist", "vendor", "third_party", "libs", "test",
-                    "tests"}
+                    "tests", "tool", "tools", "script", "scripts", "mock",
+                    "mocks", "unittest", "scratch", "demo"}
 
 
 def _profile_path():

@@ -4,6 +4,12 @@ import json
 import sys
 import warnings
 
+NON_SOURCE_EXTS = {
+    "", ".md", ".txt", ".json", ".lock", ".yaml", ".yml", ".toml", ".xml",
+    ".html", ".css", ".csv", ".tsv", ".svg", ".png", ".jpg", ".jpeg", ".gif",
+    ".pdf", ".zip", ".gz", ".tar", ".ico", ".map",
+}
+
 # Tree-sitter 兼容层: 同时支持旧版 tree_sitter_languages 和新版独立语言包 (v0.26+)
 HAS_TREE_SITTER = False
 TS_QUERY_OLD_API = False  # True=tree_sitter_languages, False=独立包 v0.26+
@@ -175,7 +181,7 @@ class ASTCoarseScanner:
                     total_source_files += 1
 
                 # L2 fallback 检测: 记录未能映射到预设语言的扩展名
-                if not lang:
+                if not lang and ext not in NON_SOURCE_EXTS:
                     unknown_extensions[ext] = unknown_extensions.get(ext, 0) + 1
 
                 # 读取文件内容 (源码规则 + property-check 共用)
